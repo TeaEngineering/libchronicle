@@ -70,6 +70,7 @@ typedef struct queue {
 
 // globals
 char* debug = NULL;
+uint64_t pid_header = 0;
 queue_t *queue_head = NULL;
 
 // forward declarations
@@ -80,6 +81,7 @@ K shmipc_init(K dir) {
     if (dir->s[0] != ':') return krr("dir is not symbol handle :");
 
     debug = getenv("SHMIPC_DEBUG");
+    pid_header = (getpid() & HD_MASK_LENGTH) | HD_WORKING;
 
     printf("shmipc: opening dir %p %p %s\n", dir, dir->s, dir->s);
 
@@ -181,26 +183,28 @@ void parse_dirlist(queue_t *item) {
     uint32_t header;
     int sz;
     while (1) {
-        memcpy(&header, base, sizeof(header)); // relax, optimised away
+        memcpy(&header, base, sizeof(header)); // relax, fn optimised away
+        asm volatile ("mfence" ::: "memory");
+
         if (header == HD_UNALLOCATED) {
-            printf(" %8d @%p unallocated\n", n, base);
+            printf(" %d @%p unallocated\n", n, base);
             return;
         } else if ((header & HD_MASK_META) == HD_WORKING) {
-            printf(" %8d @%p working\n", n, base);
+            printf(" %d @%p locked for writing by pid %d\n", n, base, header & HD_MASK_LENGTH);
             return;
         } else if ((header & HD_MASK_META) == HD_METADATA) {
             sz = (header & HD_MASK_LENGTH);
-            printf(" %8d @%p metadata size %x\n", n, base, sz);
+            printf(" %d @%p metadata size %x\n", n, base, sz);
         } else if ((header & HD_MASK_META) == HD_EOF) {
-            printf(" %8d @%p EOF\n", n, base);
+            printf(" %d @%p EOF\n", n, base);
             return;
         } else {
             sz = (header & HD_MASK_LENGTH);
-            printf(" %8d @%p data size %x\n", n, base, sz);
-            parse_data_wire(base+4, sz);
+            printf(" %d @%p data size %x\n", n, base, sz);
+            parse_wire(base+4, sz, cbs, item);
         }
         int align = ((sz & 0x0000003F) >= 60) ? -60 + (sz & 0x3F) : 0;
-        printf("  %p + 4 + size %d + align %x\n", base, sz, align);
+        // printf("  %p + 4 + size %d + align %x\n", base, sz, align);
         base = base + 4 + sz + align;
         n++;
     }
