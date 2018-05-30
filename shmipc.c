@@ -11,6 +11,7 @@
 
 #include "k.h"
 #include "buffer.h"
+#include "wire.h"
 
 /**
  * Note
@@ -73,7 +74,6 @@ queue_t *queue_head = NULL;
 
 // forward declarations
 void parse_dirlist(queue_t *item);
-void parse_data_wire(char* buf, int n);
 
 K shmipc_init(K dir) {
     if (dir->t != -KS) return krr("dir is not symbol");
@@ -129,7 +129,7 @@ K shmipc_init(K dir) {
     if ((item->dirlist = mmap(0, item->dirlist_statbuf.st_size, PROT_READ, MAP_SHARED, item->dirlist_fd, 0)) == (caddr_t) -1)
         return krr("dirlist mmap fail");
 
-    printf("parsing dirlist\n");
+    printf("shmipc: parsing dirlist\n");
     parse_dirlist(item);
 
     // Good to use
@@ -157,11 +157,26 @@ K shmipc_init(K dir) {
 
 }
 
+
+void handle_dirlist_fields(char* buf, int sz, uint64_t data, void* userdata) {
+    queue_t *item = (queue_t*)userdata;
+    if (strncmp(buf, "listing.highestCycle", sz) == 0) {
+        item->dirlist_fields.highest_cycle = data;
+    } else if (strncmp(buf, "listing.lowestCycle", sz) == 0) {
+        item->dirlist_fields.lowest_cycle = data;
+    } else if (strncmp(buf, "listing.modcount", sz) == 0) {
+        item->dirlist_fields.modcount = data;
+    }
+}
+
 void parse_dirlist(queue_t *item) {
     // our mmap is the size of the fstat, so bound the replay
     int lim = item->dirlist_statbuf.st_size;
     int n = 0;
     char* base = item->dirlist;
+
+    wirecallbacks_t cbs;
+    cbs.event_uint64 = &handle_dirlist_fields;
 
     uint32_t header;
     int sz;
@@ -191,43 +206,6 @@ void parse_dirlist(queue_t *item) {
     }
 }
 
-void parse_data_wire(char* base, int n) {
-    char* p = base;
-    uint8_t control;
-
-    char* ev_name = NULL;
-    uint8_t ev_name_sz = 0;
-    uint64_t jlong = 0;
-    uint32_t padding32 = 0;
-
-    while (p-base < n) {
-        control = p[0];
-        switch(control) {
-            case 0xB9: // EVENT_NAME
-                ev_name = p+2;
-                ev_name_sz = p[1];
-                p += 2 + ev_name_sz;
-                break;
-            case 0x8F: // PADDING
-                p++;
-                break;
-            case 0x8E: // PADDING_32
-                memcpy(&padding32, p+1, sizeof(padding32));
-                p += 1 + 4 + padding32;
-                break;
-            case 0xA7: // INT64
-                memcpy(&jlong, p+1, sizeof(jlong));
-                printf("    %.*s = %llu\n", ev_name_sz, ev_name, jlong);
-                p += 1 + 8;
-                break;
-            default:
-                printf("Aborted DATA unknown control %d %02x\n", control, control);
-                p = base + n;
-                break;
-        }
-    }
-}
-
 K shmipc_peek(K x){
     queue_t *current = queue_head;
     while (current != NULL) {
@@ -242,13 +220,16 @@ K shmipc_debug(K x) {
 
     queue_t *current = queue_head;
     while (current != NULL) {
-        printf("  handle             %s\n", current->hsymbolp);
+        printf(" handle              %s\n", current->hsymbolp);
         printf("  dirlist_name       %s\n", current->dirlist_name);
         printf("  dirlist_fd         %d\n", current->dirlist_fd);
         printf("  dirlist_sz         %lld\n", current->dirlist_statbuf.st_size);
         printf("  dirlist            %p\n", current->dirlist);
+        printf("    cycle-low        %lld\n", current->dirlist_fields.lowest_cycle);
+        printf("    cycle-high       %lld\n", current->dirlist_fields.highest_cycle);
+        printf("    modcount         %lld\n", current->dirlist_fields.modcount);
         printf("  queuefile_pattern  %s\n", current->queuefile_pattern);
-        printf("  cycle              %lld", current->cycle);
+
         current = current->next;
     }
     return 0;

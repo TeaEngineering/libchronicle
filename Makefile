@@ -16,7 +16,7 @@ endif
 
 ODIR=obj
 LIBS=-lm
-DEPS = k.h
+DEPS = k.h wire.h
 
 all: obj/cpu.so obj/hpet.so obj/shmipc.so
 
