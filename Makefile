@@ -18,7 +18,7 @@ ODIR=obj
 LIBS=-lm
 DEPS = k.h
 
-all: obj/cpu.so obj/hpet.so
+all: obj/cpu.so obj/hpet.so obj/shmipc.so
 
 $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS)
