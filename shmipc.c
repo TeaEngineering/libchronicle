@@ -166,9 +166,14 @@ void handle_dirlist_fields(char* buf, int sz, uint64_t data, void* userdata) {
         item->dirlist_fields.highest_cycle = data;
     } else if (strncmp(buf, "listing.lowestCycle", sz) == 0) {
         item->dirlist_fields.lowest_cycle = data;
-    } else if (strncmp(buf, "listing.modcount", sz) == 0) {
+    } else if (strncmp(buf, "listing.modCount", sz) == 0) {
         item->dirlist_fields.modcount = data;
     }
+}
+
+void handle_header_typeprefix(char* buf, int sz, void* userdata) {
+    queue_t *item = (queue_t*)userdata;
+    printf("   %.*s\n", sz, buf);
 }
 
 void parse_dirlist(queue_t *item) {
@@ -178,7 +183,12 @@ void parse_dirlist(queue_t *item) {
     char* base = item->dirlist;
 
     wirecallbacks_t cbs;
+    bzero(&cbs, sizeof(cbs));
     cbs.event_uint64 = &handle_dirlist_fields;
+
+    wirecallbacks_t hcbs;
+    bzero(&hcbs, sizeof(hcbs));
+    hcbs.type_prefix = &handle_header_typeprefix;
 
     uint32_t header;
     int sz;
@@ -195,6 +205,9 @@ void parse_dirlist(queue_t *item) {
         } else if ((header & HD_MASK_META) == HD_METADATA) {
             sz = (header & HD_MASK_LENGTH);
             printf(" %d @%p metadata size %x\n", n, base, sz);
+            parse_wire(base+4, sz, hcbs, NULL);
+            // EventName  header
+            //   switch to header parser
         } else if ((header & HD_MASK_META) == HD_EOF) {
             printf(" %d @%p EOF\n", n, base);
             return;
@@ -231,7 +244,7 @@ K shmipc_debug(K x) {
         printf("  dirlist            %p\n", current->dirlist);
         printf("    cycle-low        %lld\n", current->dirlist_fields.lowest_cycle);
         printf("    cycle-high       %lld\n", current->dirlist_fields.highest_cycle);
-        printf("    modcount         %lld\n", current->dirlist_fields.modcount);
+        printf("    modcount         %ld\n", current->dirlist_fields.modcount);
         printf("  queuefile_pattern  %s\n", current->queuefile_pattern);
 
         current = current->next;
