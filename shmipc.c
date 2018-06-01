@@ -38,10 +38,15 @@
 #define HD_MASK_META   HD_EOF
 
 typedef struct {
-    long long highest_cycle;
-    long long lowest_cycle;
-    long modcount;
+    unsigned char *highest_cycle;
+    unsigned char *lowest_cycle;
+    unsigned char *modcount;
 } dirlist_fields_t;
+
+typedef struct {
+    uint64_t next;
+    K callback;
+} tailer_t;
 
 typedef struct queue {
     char*             dirname;
@@ -52,15 +57,26 @@ typedef struct queue {
     char*             dirlist_name;
     int               dirlist_fd;
     struct stat       dirlist_statbuf;
-    char*             dirlist; // mmap base
+    unsigned char*    dirlist; // mmap base
     // struct dl_info    dirlist_info; // useful content from wire protocol content
     dirlist_fields_t  dirlist_fields;
 
     char*             queuefile_pattern;
-    glob_t            queuefile_glob; // last glob of data files
+    glob_t            queuefile_glob; // last glob of data files, refreshed by poll on modcount
 
     // current cycle observed at poll
     long long int     cycle;
+
+    uint64_t          highest_cycle;
+    uint64_t          lowest_cycle;
+    uint64_t          modcount;
+
+    // a window into one of the queue files
+    uint64_t          open_cycle;
+    int               queuefile_fd;
+    struct stat       queuefile_statbuf;
+    uint64_t          queuefile_base; // offset within file of mmap, size mapped is blocksize or until extent
+    unsigned char*    queuefile_buf;
 
     // tailers LL
     // appenders LL
@@ -75,6 +91,7 @@ queue_t *queue_head = NULL;
 
 // forward declarations
 void parse_dirlist(queue_t *item);
+void parse_queuefile(queue_t *item);
 
 K shmipc_init(K dir) {
     if (dir->t != -KS) return krr("dir is not symbol");
@@ -128,11 +145,34 @@ K shmipc_init(K dir) {
     // find size of dirlist and mmap
     if (fstat(item->dirlist_fd, &item->dirlist_statbuf) < 0)
         return krr("dirlist fstat");
-    if ((item->dirlist = mmap(0, item->dirlist_statbuf.st_size, PROT_READ, MAP_SHARED, item->dirlist_fd, 0)) == (caddr_t) -1)
+    if ((item->dirlist = mmap(0, item->dirlist_statbuf.st_size, PROT_READ, MAP_SHARED, item->dirlist_fd, 0)) == MAP_FAILED)
         return krr("dirlist mmap fail");
 
     printf("shmipc: parsing dirlist\n");
     parse_dirlist(item);
+
+    // check the polled fields in header section were all resolved to pointers within the map
+    if (item->dirlist_fields.highest_cycle == NULL || item->dirlist_fields.lowest_cycle == NULL ||
+        item->dirlist_fields.modcount == NULL) {
+        return krr("dirlist parse hdr ptr fail");
+    }
+
+    // read a 'queue' header from any one of the datafiles to get the
+    // rollover configuration. We don't know how to generate a filename from a cycle code
+    // yet, so this needs to use the directory listing.
+    // TODO: don't map whole, map blocksize
+    char* fn = item->queuefile_glob.gl_pathv[0];
+    // find size of dirlist and mmap
+    if ((item->queuefile_fd = open(fn, O_RDONLY)) < 0) {
+        return orr("qf open");
+    }
+    if (fstat(item->queuefile_fd, &item->queuefile_statbuf) < 0)
+        return krr("qf fstat");
+    if ((item->queuefile_buf = mmap(0, item->queuefile_statbuf.st_size, PROT_READ, MAP_SHARED, item->queuefile_fd, 0)) == MAP_FAILED)
+        return krr("qf mmap fail");
+
+    printf("shmipc: parsing queuefile %s\n", fn);
+    parse_queuefile(item);
 
     // Good to use
     item->next = queue_head;
@@ -160,35 +200,21 @@ K shmipc_init(K dir) {
 }
 
 
-void handle_dirlist_fields(char* buf, int sz, uint64_t data, void* userdata) {
-    queue_t *item = (queue_t*)userdata;
+void handle_dirlist_fields(char* buf, int sz, unsigned char *dptr, wirecallbacks_t* cbs) {
+    // we are preserving *pointers* within the shared directory data page
+    queue_t *item = (queue_t*)cbs->userdata;
     if (strncmp(buf, "listing.highestCycle", sz) == 0) {
-        item->dirlist_fields.highest_cycle = data;
+        item->dirlist_fields.highest_cycle = dptr;
     } else if (strncmp(buf, "listing.lowestCycle", sz) == 0) {
-        item->dirlist_fields.lowest_cycle = data;
+        item->dirlist_fields.lowest_cycle = dptr;
     } else if (strncmp(buf, "listing.modCount", sz) == 0) {
-        item->dirlist_fields.modcount = data;
+        item->dirlist_fields.modcount = dptr;
     }
 }
 
-void handle_header_typeprefix(char* buf, int sz, void* userdata) {
-    queue_t *item = (queue_t*)userdata;
-    printf("   %.*s\n", sz, buf);
-}
+typedef void (*parsedata_f)(unsigned char*,int,void* userdata);
 
-void parse_dirlist(queue_t *item) {
-    // our mmap is the size of the fstat, so bound the replay
-    int lim = item->dirlist_statbuf.st_size;
-    int n = 0;
-    char* base = item->dirlist;
-
-    wirecallbacks_t cbs;
-    bzero(&cbs, sizeof(cbs));
-    cbs.event_uint64 = &handle_dirlist_fields;
-
-    wirecallbacks_t hcbs;
-    bzero(&hcbs, sizeof(hcbs));
-    hcbs.type_prefix = &handle_header_typeprefix;
+void parse_queue_block(unsigned char* base, int n, wirecallbacks_t* hcbs, parsedata_f parse_data, void* userdata) {
 
     uint32_t header;
     int sz;
@@ -205,7 +231,7 @@ void parse_dirlist(queue_t *item) {
         } else if ((header & HD_MASK_META) == HD_METADATA) {
             sz = (header & HD_MASK_LENGTH);
             printf(" %d @%p metadata size %x\n", n, base, sz);
-            parse_wire(base+4, sz, hcbs, NULL);
+            parse_wire(base+4, sz, hcbs);
             // EventName  header
             //   switch to header parser
         } else if ((header & HD_MASK_META) == HD_EOF) {
@@ -214,7 +240,11 @@ void parse_dirlist(queue_t *item) {
         } else {
             sz = (header & HD_MASK_LENGTH);
             printf(" %d @%p data size %x\n", n, base, sz);
-            parse_wire(base+4, sz, cbs, item);
+            if (parse_data) {
+                parse_data(base+4, sz, userdata);
+            } else if (userdata) {
+                parse_wire(base+4, sz, userdata);
+            }
         }
         int align = ((sz & 0x0000003F) >= 60) ? -60 + (sz & 0x3F) : 0;
         // printf("  %p + 4 + size %d + align %x\n", base, sz, align);
@@ -223,10 +253,60 @@ void parse_dirlist(queue_t *item) {
     }
 }
 
+void parse_dirlist(queue_t *item) {
+    // our mmap is the size of the fstat, so bound the replay
+    int lim = item->dirlist_statbuf.st_size;
+    int n = 0;
+    unsigned char* base = item->dirlist;
+
+    wirecallbacks_t cbs;
+    bzero(&cbs, sizeof(cbs));
+    cbs.event_uint64 = &handle_dirlist_fields;
+    cbs.userdata = item;
+
+    wirecallbacks_t hcbs;
+    bzero(&hcbs, sizeof(hcbs));
+    parse_queue_block(base, n, &hcbs, parse_wire, &cbs);
+}
+
+void parse_queuefile(queue_t *item) {
+    // our mmap is the size of the fstat, so bound the replay
+    int lim = item->blocksize;
+    int n = 0;
+    unsigned char* base = item->queuefile_buf;
+
+    wirecallbacks_t cbs;
+    bzero(&cbs, sizeof(cbs));
+    // cbs.event_uint64 = &handle_dirlist_fields;
+
+    wirecallbacks_t hcbs;
+    bzero(&hcbs, sizeof(hcbs));
+
+    parse_queue_block(base, n, &hcbs, NULL, NULL);
+}
+
 K shmipc_peek(K x){
     queue_t *current = queue_head;
+    uint64_t modcount;
+
     while (current != NULL) {
         printf("peeking at %s\n", current->hsymbolp);
+
+        // poll shared directory for modcount
+        // TODO: check header unlocked?
+        memcpy(&modcount, current->dirlist_fields.modcount, sizeof(modcount));
+
+        if (current->modcount != modcount) {
+            printf(" %s modcount changed from %llu to %llu - scanning\n", current->hsymbolp, current->modcount, modcount);
+            // slowpath poll
+            memcpy(&current->modcount, current->dirlist_fields.modcount, sizeof(modcount));
+            memcpy(&current->lowest_cycle, current->dirlist_fields.lowest_cycle, sizeof(modcount));
+            memcpy(&current->highest_cycle, current->dirlist_fields.highest_cycle, sizeof(modcount));
+
+            // now scan filenames as directory contents changed
+        }
+
+
         current = current->next;
     }
     return ki(0);
@@ -242,9 +322,9 @@ K shmipc_debug(K x) {
         printf("  dirlist_fd         %d\n", current->dirlist_fd);
         printf("  dirlist_sz         %lld\n", current->dirlist_statbuf.st_size);
         printf("  dirlist            %p\n", current->dirlist);
-        printf("    cycle-low        %lld\n", current->dirlist_fields.lowest_cycle);
-        printf("    cycle-high       %lld\n", current->dirlist_fields.highest_cycle);
-        printf("    modcount         %ld\n", current->dirlist_fields.modcount);
+        printf("    cycle-low        %lld\n", current->lowest_cycle);
+        printf("    cycle-high       %lld\n", current->highest_cycle);
+        printf("    modcount         %llu\n", current->modcount);
         printf("  queuefile_pattern  %s\n", current->queuefile_pattern);
 
         current = current->next;
@@ -257,6 +337,7 @@ K shmipc_appender(K x) {
     return 0;
 }
 
-K shmipc_tailer(K x, K y, K z){
+K shmipc_tailer(K handle, K cb, K start) {
+
     return krr("NYI soon");
 }
