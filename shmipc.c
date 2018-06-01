@@ -23,6 +23,8 @@
  * The current iteration requires a Java Chronicle-Queues node to be writing to the same queue
  * on a periodic timer to roll over the log files and maintain the index structures.
  *
+ * It should be possible to append to a queue from a tailer on same queue, so the fds and mmaps
+ * used for writing are separate to those used in recovery.
  */
 
 // MetaDataKeys `header`index2index`index`roll
@@ -36,6 +38,9 @@
 #define HD_EOF         0xC0000000
 #define HD_MASK_LENGTH 0x3FFFFFFF
 #define HD_MASK_META   HD_EOF
+
+// a couple of funciton pointer typedefs
+typedef void (*parsedata_f)(unsigned char*,int,void* userdata);
 
 typedef struct {
     unsigned char *highest_cycle;
@@ -58,7 +63,6 @@ typedef struct queue {
     int               dirlist_fd;
     struct stat       dirlist_statbuf;
     unsigned char*    dirlist; // mmap base
-    // struct dl_info    dirlist_info; // useful content from wire protocol content
     dirlist_fields_t  dirlist_fields;
 
     char*             queuefile_pattern;
@@ -78,6 +82,17 @@ typedef struct queue {
     uint64_t          queuefile_base; // offset within file of mmap, size mapped is blocksize or until extent
     unsigned char*    queuefile_buf;
 
+    // roll config populated from (any) queuefile header
+    int               roll_length;
+    int               roll_epoch;
+    int               index_count;
+    int               index_spacing;
+
+    int               cycle_shift;
+    uint64_t          seqnum_mask;
+
+    char* (*cycle2file_fn)(struct queue*,int);
+
     // tailers LL
     // appenders LL
 
@@ -93,9 +108,16 @@ queue_t *queue_head = NULL;
 void parse_dirlist(queue_t *item);
 void parse_queuefile(queue_t *item);
 
-K shmipc_init(K dir) {
+char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
+    char* retval;
+    asprintf(&retval, "12345678");
+    return retval;
+}
+
+K shmipc_init(K dir, K parser) {
     if (dir->t != -KS) return krr("dir is not symbol");
     if (dir->s[0] != ':') return krr("dir is not symbol handle :");
+    if (dir->t != -KS) return krr("parser is not symbol");
 
     debug = getenv("SHMIPC_DEBUG");
     pid_header = (getpid() & HD_MASK_LENGTH) | HD_WORKING;
@@ -128,7 +150,7 @@ K shmipc_init(K dir) {
 
     asprintf(&item->queuefile_pattern, "%s/*.cq4", item->dirname);
     glob(item->queuefile_pattern, GLOB_ERR, NULL, g);
-    printf("shmipc: %d queue files found\n", g->gl_matchc);
+    printf("shmipc: glob %d queue files found\n", g->gl_matchc);
     if (g->gl_matchc < 1) {
         return krr("no queue files - java run?");
     }
@@ -171,8 +193,23 @@ K shmipc_init(K dir) {
     if ((item->queuefile_buf = mmap(0, item->queuefile_statbuf.st_size, PROT_READ, MAP_SHARED, item->queuefile_fd, 0)) == MAP_FAILED)
         return krr("qf mmap fail");
 
+    // we don't need a data-parser at this stage as we only need values from the header
     printf("shmipc: parsing queuefile %s\n", fn);
     parse_queuefile(item);
+
+    // check we loaded some rollover settings from queuefile
+    if (item->roll_length == 0) krr("qf roll_length fail");
+    if (item->index_count == 0) krr("qf index_count fail");
+    if (item->index_spacing == 0) krr("qf index_spacing fail");
+
+    item->cycle2file_fn = &get_cycle_fn_yyyymmdd;
+
+    // verify user-specified parser for data segments
+    if (strncmp(parser->s, "text", 5) == 0) {
+        printf("shmipc: format set to text");
+    } else {
+        return krr("bad format");
+    }
 
     // Good to use
     item->next = queue_head;
@@ -198,21 +235,6 @@ K shmipc_init(K dir) {
     return (K)NULL;
 
 }
-
-
-void handle_dirlist_fields(char* buf, int sz, unsigned char *dptr, wirecallbacks_t* cbs) {
-    // we are preserving *pointers* within the shared directory data page
-    queue_t *item = (queue_t*)cbs->userdata;
-    if (strncmp(buf, "listing.highestCycle", sz) == 0) {
-        item->dirlist_fields.highest_cycle = dptr;
-    } else if (strncmp(buf, "listing.lowestCycle", sz) == 0) {
-        item->dirlist_fields.lowest_cycle = dptr;
-    } else if (strncmp(buf, "listing.modCount", sz) == 0) {
-        item->dirlist_fields.modcount = dptr;
-    }
-}
-
-typedef void (*parsedata_f)(unsigned char*,int,void* userdata);
 
 void parse_queue_block(unsigned char* base, int n, wirecallbacks_t* hcbs, parsedata_f parse_data, void* userdata) {
 
@@ -253,6 +275,39 @@ void parse_queue_block(unsigned char* base, int n, wirecallbacks_t* hcbs, parsed
     }
 }
 
+void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t* cbs) {
+    // we are preserving *pointers* within the shared directory data page
+    queue_t *item = (queue_t*)cbs->userdata;
+    if (strncmp(buf, "listing.highestCycle", sz) == 0) {
+        item->dirlist_fields.highest_cycle = dptr;
+    } else if (strncmp(buf, "listing.lowestCycle", sz) == 0) {
+        item->dirlist_fields.lowest_cycle = dptr;
+    } else if (strncmp(buf, "listing.modCount", sz) == 0) {
+        item->dirlist_fields.modcount = dptr;
+    }
+}
+
+void handle_qf_uint32(char* buf, int sz, uint32_t data, wirecallbacks_t* cbs){
+    queue_t *item = (queue_t*)cbs->userdata;
+    if (strncmp(buf, "length", sz) == 0) {
+        item->roll_length = data;
+    }
+}
+
+void handle_qf_uint16(char* buf, int sz, uint16_t data, wirecallbacks_t* cbs) {
+    queue_t *item = (queue_t*)cbs->userdata;
+    if (strncmp(buf, "indexCount", sz) == 0) {
+        item->index_count = data;
+    }
+}
+
+void handle_qf_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
+    queue_t *item = (queue_t*)cbs->userdata;
+    if (strncmp(buf, "indexSpacing", sz) == 0) {
+        item->index_spacing = data;
+    }
+}
+
 void parse_dirlist(queue_t *item) {
     // our mmap is the size of the fstat, so bound the replay
     int lim = item->dirlist_statbuf.st_size;
@@ -261,7 +316,7 @@ void parse_dirlist(queue_t *item) {
 
     wirecallbacks_t cbs;
     bzero(&cbs, sizeof(cbs));
-    cbs.event_uint64 = &handle_dirlist_fields;
+    cbs.ptr_uint64 = &handle_dirlist_ptr;
     cbs.userdata = item;
 
     wirecallbacks_t hcbs;
@@ -275,14 +330,13 @@ void parse_queuefile(queue_t *item) {
     int n = 0;
     unsigned char* base = item->queuefile_buf;
 
-    wirecallbacks_t cbs;
-    bzero(&cbs, sizeof(cbs));
-    // cbs.event_uint64 = &handle_dirlist_fields;
-
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
-
-    parse_queue_block(base, n, &hcbs, NULL, NULL);
+    hcbs.field_uint32 = &handle_qf_uint32;
+    hcbs.field_uint16 = &handle_qf_uint16;
+    hcbs.field_uint8 =  &handle_qf_uint8;
+    hcbs.userdata = item;
+    parse_queue_block(base, n, &hcbs, parse_data_text, NULL);
 }
 
 K shmipc_peek(K x){
@@ -326,6 +380,10 @@ K shmipc_debug(K x) {
         printf("    cycle-high       %lld\n", current->highest_cycle);
         printf("    modcount         %llu\n", current->modcount);
         printf("  queuefile_pattern  %s\n", current->queuefile_pattern);
+        printf("    roll_epoch       %d\n", current->roll_epoch);
+        printf("    roll_length (ms) %d\n", current->roll_length);
+        printf("    index_count      %d\n", current->index_count);
+        printf("    index_spacing    %d\n", current->index_spacing);
 
         current = current->next;
     }
@@ -333,11 +391,61 @@ K shmipc_debug(K x) {
 }
 
 K shmipc_appender(K x) {
-    //free(buf_base);
+
+    // Appending logic
+    // 0) catch up to the end of the current file.
+    //   if hit EOF then we need to wait for creation of next file, poll modcount
+    //   then try opening filehandle
+    // Else we may be only writer
+    // a) determine if we need to roll to a new file - other writers may be idle
+    //     call gtod and calculate current cycle
+    //
+    //    - CAS loop to write EOF marker
+    //     create new queue file
+    //     update maxcycle and then increment modcount
+    // or
+    // b) write to current file
+    //     Is this entry indexable?
+    //       Is the index currently full
+    //     Write Entry
+    //        if mod % index, write back to index
+    //        if index full, write new index page, write back to index2index
+    //        when update index page, then write data
+    //   Before write, CAS operation to put working indicator on last entry
+    //    if fail, loop waiting for unlock. If EOF then fail is broken, retry
+    //    if data or index, skip over them and attempt again on newest page
+
     return 0;
 }
 
-K shmipc_tailer(K handle, K cb, K start) {
+K shmipc_tailer(K dir, K cb, K kindex) {
+    if (dir->t != -KS) return krr("dir is not symbol");
+    if (dir->s[0] != ':') return krr("dir is not symbol handle :");
+    if (cb->t != 100) return krr("cb is not function");
+    if (kindex->t != -KJ) return krr("index must be J");
 
-    return krr("NYI soon");
+    // check if queue already open
+    queue_t *item = queue_head;
+    while (item != NULL) {
+        if (item->hsymbolp == dir->s) break;
+        item = item->next;
+    }
+    if (item == NULL) return krr("dir must be shmipc.init[] first");
+
+    // decompose index into cycle (file) and seqnum within file
+    J index = kindex->j;
+    int cycle = index >> item->cycle_shift;
+    int seqnum = index & item->seqnum_mask;
+    if (cycle < item->lowest_cycle) {
+        cycle = item->lowest_cycle;
+    }
+    if (cycle > item->highest_cycle) {
+        cycle = item->highest_cycle;
+    }
+    printf("tailer replaying from cycle=%d seqnum=%d\n", cycle, seqnum);
+
+    // convert cycle to filename
+    char* cyclefn = item->cycle2file_fn(item, cycle);
+
+    return (K)NULL;
 }

@@ -3,7 +3,7 @@
 
 / see also hpet.c/hpet.q for the high performance event timer
 
-.shmipc.init:`:native/obj/shmipc 2:(`shmipc_init;1)
+.shmipc.init:`:native/obj/shmipc 2:(`shmipc_init;2)
 .shmipc.peek:`:native/obj/shmipc 2:(`shmipc_peek;1)
 .shmipc.tailer:`:native/obj/shmipc 2:(`shmipc_tailer;3)
 .shmipc.appender:`:native/obj/shmipc 2:(`shmipc_appender;2)
@@ -13,8 +13,9 @@
 
 / opening an appender or tailer first need watchers on the queue directory and the most
 / recent data file to be opened. The initial layout needs to be created by a Java
-/ process
-.shmipc.init[`:java/queue];
+/ process.
+/ decoder type can be `text`bytes`kdb
+.shmipc.init[`:java/queue;`text];
 /.shmipc.init[`:java/queue]; / `shmipc dupe init
 
 .shmipc.debug[0];
@@ -24,14 +25,13 @@ fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.500000000];
 .shmipc.peek[0];
 .shmipc.debug[0];
 
-/ add a tailer by using .shmipc.tailer[`:queue;cb;cycle] where cycle may be 0 to replay
+/ add a tailer by using .shmipc.tailer[`:queue;cb;cycle;decoder] where cycle may be 0 to replay
 / from the beginning of time, and cb is the callback for each event in the queue. A replay
 / occurs 'inline' and any new records are dispatched by calls to .peek[]
 cb:{0N!(x;y)}
 .shmipc.tailer[`:java/queue;cb;0];
 
 / Note the standard Java wire implementations are largely ignored and returned as byte arrays
-
 / for debug tracing $ export SHMIPC_DEBUG=1 && ./q.sh native/shmipc.q
 
 / add a souce by .shmipc.appender[`:queue;data]
@@ -40,5 +40,4 @@ cb:{0N!(x;y)}
 / at the 'pid' level.
 .shmipc.appender[`:java/queue;"message"];
 
-/ under the covers the characters of symbol are used to lookup the queue directory. The symbol index
-/ is then used firstly as a directory lookup
+
