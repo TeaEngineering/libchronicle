@@ -20,7 +20,7 @@
 
 .shmipc.debug[0];
 
-fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.500000000];
+// fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.500000000];
 
 .shmipc.peek[0];
 .shmipc.debug[0];
@@ -31,6 +31,8 @@ fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.500000000];
 cb:{0N!(x;y)}
 .shmipc.tailer[`:java/queue;cb;0];
 
+.shmipc.debug[0];
+
 / Note the standard Java wire implementations are largely ignored and returned as byte arrays
 / for debug tracing $ export SHMIPC_DEBUG=1 && ./q.sh native/shmipc.q
 
@@ -40,4 +42,9 @@ cb:{0N!(x;y)}
 / at the 'pid' level.
 .shmipc.appender[`:java/queue;"message"];
 
+// tailers only advance on calls to poll[], wheres appenders advance on every call to appenders
 
+// To debug wire.h protocol parsers
+// $ export SHMIPC_WIRETRACE=1
+// $ unset SHMIPC_WIRETRACE
+// $ ./q.sh native/shmipc.q
