@@ -155,6 +155,10 @@ void parse_wire(unsigned char* base, int lim, uint64_t index, wirecallbacks_t* c
     }
 }
 
+void parse_wire2(unsigned char* base, int lim, uint64_t index, void* cbs) {
+    parse_wire(base, lim, index, (wirecallbacks_t*)cbs);
+}
+
 void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
     printf(" text: %llu %d '%.*s'\n", index, lim, lim, base);
 }

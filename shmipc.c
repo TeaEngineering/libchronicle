@@ -1,4 +1,7 @@
-#define _GNU_SOURCE         /* See feature_test_macros(7) */
+#define _GNU_SOURCE
+
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -300,8 +303,6 @@ void parse_queue_block(unsigned char* base, uint64_t seqnum, wirecallbacks_t* hc
             printf(" %llu @%p data size %x\n", seqnum, base, sz);
             if (parse_data) {
                 parse_data(base+4, sz, seqnum, userdata);
-            } else if (userdata) {
-                parse_wire(base+4, sz, 0, userdata);
             } else {
                 // bail at first data message
                 return;
@@ -367,7 +368,7 @@ void parse_dirlist(queue_t *item) {
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
-    parse_queue_block(base, n, &hcbs, parse_wire, &cbs);
+    parse_queue_block(base, n, &hcbs, &parse_wire2, &cbs);
 }
 
 void parse_queuefile_meta(unsigned char* base, queue_t *item) {
