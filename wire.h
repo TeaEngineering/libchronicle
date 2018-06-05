@@ -1,3 +1,6 @@
+#include <sys/types.h>
+#include <stdint.h>
+
 
 typedef struct wirecallbacks {
     void (*event_name)(char*,int,struct wirecallbacks*);

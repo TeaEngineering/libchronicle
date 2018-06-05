@@ -1,3 +1,5 @@
+#define _GNU_SOURCE         /* See feature_test_macros(7) */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -167,11 +169,11 @@ K shmipc_init(K dir, K parser) {
 
     asprintf(&item->queuefile_pattern, "%s/*.cq4", item->dirname);
     glob(item->queuefile_pattern, GLOB_ERR, NULL, g);
-    printf("shmipc: glob %d queue files found\n", g->gl_matchc);
-    if (g->gl_matchc < 1) {
+    printf("shmipc: glob %d queue files found\n", g->gl_pathc);
+    if (g->gl_pathc < 1) {
         return krr("no queue files - java run?");
     }
-    for (int i = 0; i < g->gl_matchc;i++) {
+    for (int i = 0; i < g->gl_pathc;i++) {
         printf("   %s\n", g->gl_pathv[i]);
     }
 
