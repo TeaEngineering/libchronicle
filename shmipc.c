@@ -150,7 +150,7 @@ K shmipc_init(K dir, K parser) {
     // allocate struct, we'll link if all checks pass
     item = malloc(sizeof(queue_t));
     if (item == NULL) return krr("m fail");
-    bzero(&item, sizeof(queue_t));
+    bzero(item, sizeof(queue_t));
 
     // dir is on the stack, but dir->s points to the heap interned table. safe to use ref to q
     item->dirname = &dir->s[1];
@@ -470,7 +470,7 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
 }
 
 K shmipc_debug(K x) {
-    printf("shmipc open handles\n");
+    printf("shmipc: open handles\n");
 
     queue_t *current = queue_head;
     while (current != NULL) {
@@ -572,7 +572,7 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     // allocate struct, we'll link if all checks pass
     tailer_t* tailer = malloc(sizeof(tailer_t));
     if (tailer == NULL) return krr("tm fail");
-    bzero(&tailer, sizeof(tailer_t));
+    bzero(tailer, sizeof(tailer_t));
 
     tailer->index = index;
     tailer->callback = cb;
@@ -588,19 +588,40 @@ K shmipc_close(K dir) {
     if (dir->s[0] != ':') return krr("dir is not symbol handle :");
 
     // check if queue already open
-    queue_t *item = queue_head;
-    queue_t *last = NULL;
-    while (item != NULL) {
-        if (item->hsymbolp == dir->s) {
-            if (item == queue_head) {
-                queue_head = item->next;
-            } else {
-                last->next = item->next;
+    queue_t **parent = &queue_head; // pointer to a queue_t pointer
+    queue_t *queue = queue_head;
+
+    while (queue != NULL) {
+        if (queue->hsymbolp == dir->s) {
+            *parent = queue->next; // unlink
+
+            // delete tailers
+            tailer_t *tailer = queue->tailers; // shortcut to save both collections
+            while (tailer != NULL) {
+                if (tailer->qf_fn) { // if next filename cached...
+                    free(tailer->qf_fn);
+                }
+                if (tailer->qf_buf) { // if mmap() open...
+                    munmap(tailer->qf_buf, tailer->qf_extent);
+                }
+                if (tailer->qf_fd) { // if open() open...
+                    close(tailer->qf_fd);
+                }
+                tailer = tailer->next;
             }
+
+            // kill queue
+            munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
+            close(queue->dirlist_fd);
+            free(queue->dirlist_name);
+            free(queue->queuefile_pattern);
+            globfree(&queue->queuefile_glob);
+            free(queue);
+
             return (K)NULL;
         }
-        last = item;
-        item = item->next;
+        parent = &queue->next;
+        queue = queue->next;
     }
     return krr("does not exist");
 }

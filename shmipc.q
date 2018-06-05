@@ -16,7 +16,9 @@
 / recent data file to be opened. The initial layout needs to be created by a Java
 / process.
 / decoder type can be `text`bytes`kdb
-do[1000;.shmipc.init[`:java/queue;`text];.shmipc.debug[0];.shmipc.peek[0];.shmipc.debug[0];.shmipc.close[`:java/queue];];
+n:(0 1000)[system["hostname"][0] like "*Chris*"]
+do[n;.shmipc.init[`:java/queue;`text];.shmipc.debug[0];.shmipc.peek[0];.shmipc.debug[0];.shmipc.close[`:java/queue];];
+.shmipc.debug[0];
 
 // fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.500000000];
 .shmipc.init[`:java/queue;`text];
