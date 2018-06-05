@@ -4,6 +4,7 @@
 / see also hpet.c/hpet.q for the high performance event timer
 
 .shmipc.init:`:native/obj/shmipc 2:(`shmipc_init;2)
+.shmipc.close:`:native/obj/shmipc 2:(`shmipc_close;1)
 .shmipc.peek:`:native/obj/shmipc 2:(`shmipc_peek;1)
 .shmipc.tailer:`:native/obj/shmipc 2:(`shmipc_tailer;3)
 .shmipc.appender:`:native/obj/shmipc 2:(`shmipc_appender;2)
@@ -15,13 +16,10 @@
 / recent data file to be opened. The initial layout needs to be created by a Java
 / process.
 / decoder type can be `text`bytes`kdb
-.shmipc.init[`:java/queue;`text];
-/.shmipc.init[`:java/queue]; / `shmipc dupe init
-
-.shmipc.debug[0];
+do[1000;.shmipc.init[`:java/queue;`text];.shmipc.debug[0];.shmipc.peek[0];.shmipc.debug[0];.shmipc.close[`:java/queue];];
 
 // fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.500000000];
-
+.shmipc.init[`:java/queue;`text];
 .shmipc.peek[0];
 .shmipc.debug[0];
 

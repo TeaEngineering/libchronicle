@@ -582,3 +582,25 @@ K shmipc_tailer(K dir, K cb, K kindex) {
 
     return (K)NULL;
 }
+
+K shmipc_close(K dir) {
+    if (dir->t != -KS) return krr("dir is not symbol");
+    if (dir->s[0] != ':') return krr("dir is not symbol handle :");
+
+    // check if queue already open
+    queue_t *item = queue_head;
+    queue_t *last = NULL;
+    while (item != NULL) {
+        if (item->hsymbolp == dir->s) {
+            if (item == queue_head) {
+                queue_head = item->next;
+            } else {
+                last->next = item->next;
+            }
+            return (K)NULL;
+        }
+        last = item;
+        item = item->next;
+    }
+    return krr("does not exist");
+}
