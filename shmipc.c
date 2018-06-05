@@ -169,7 +169,7 @@ K shmipc_init(K dir, K parser) {
 
     asprintf(&item->queuefile_pattern, "%s/*.cq4", item->dirname);
     glob(item->queuefile_pattern, GLOB_ERR, NULL, g);
-    printf("shmipc: glob %d queue files found\n", g->gl_pathc);
+    printf("shmipc: glob %zu queue files found\n", g->gl_pathc);
     if (g->gl_pathc < 1) {
         return krr("no queue files - java run?");
     }
