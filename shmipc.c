@@ -284,7 +284,7 @@ void parse_queue_block(unsigned char* base, uint64_t seqnum, wirecallbacks_t* hc
         asm volatile ("mfence" ::: "memory");
 
         if (header == HD_UNALLOCATED) {
-            printf(" %llu @%p unallocated\n", seqnum, base);
+            printf(" %" PRIu64 " @%p unallocated\n", seqnum, base);
             return;
         } else if ((header & HD_MASK_META) == HD_WORKING) {
             printf(" @%p locked for writing by pid %d\n", base, header & HD_MASK_LENGTH);
@@ -300,7 +300,7 @@ void parse_queue_block(unsigned char* base, uint64_t seqnum, wirecallbacks_t* hc
             return;
         } else {
             sz = (header & HD_MASK_LENGTH);
-            printf(" %llu @%p data size %x\n", seqnum, base, sz);
+            printf(" %" PRIu64 " @%p data size %x\n", seqnum, base, sz);
             if (parse_data) {
                 parse_data(base+4, sz, seqnum, userdata);
             } else {
@@ -405,7 +405,7 @@ K shmipc_peek(K x) {
         memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
 
         if (queue->modcount != modcount) {
-            printf(" %s modcount changed from %llu to %llu - scanning\n", queue->hsymbolp, queue->modcount, modcount);
+            printf(" %s modcount changed from %" PRIu64 " to %" PRIu64 " - scanning\n", queue->hsymbolp, queue->modcount, modcount);
             // slowpath poll
             memcpy(&queue->modcount, queue->dirlist_fields.modcount, sizeof(modcount));
             memcpy(&queue->lowest_cycle, queue->dirlist_fields.lowest_cycle, sizeof(modcount));
@@ -446,7 +446,7 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
 
     for (uint64_t i = cycle; i <= queue->highest_cycle; i++) {
         tailer->qf_fn = queue->cycle2file_fn(queue, i);
-        printf("cycle %llu filename %s\n", i, tailer->qf_fn);
+        printf("cycle %" PRIu64 " filename %s\n", i, tailer->qf_fn);
 
         // find size of dirlist and mmap
         if ((tailer->qf_fd = open(tailer->qf_fn, O_RDONLY)) < 0) {
@@ -481,11 +481,11 @@ K shmipc_debug(K x) {
         printf("  blocksize          %x\n",   current->blocksize);
         printf("  dirlist_name       %s\n",   current->dirlist_name);
         printf("  dirlist_fd         %d\n",   current->dirlist_fd);
-        printf("  dirlist_sz         %lld\n", current->dirlist_statbuf.st_size);
+        printf("  dirlist_sz         %" PRIu64 "\n", (uint64_t)current->dirlist_statbuf.st_size);
         printf("  dirlist            %p\n",   current->dirlist);
-        printf("    cycle-low        %lld\n", current->lowest_cycle);
-        printf("    cycle-high       %lld\n", current->highest_cycle);
-        printf("    modcount         %llu\n", current->modcount);
+        printf("    cycle-low        %" PRIu64 "\n", current->lowest_cycle);
+        printf("    cycle-high       %" PRIu64 "\n", current->highest_cycle);
+        printf("    modcount         %" PRIu64 "\n", current->modcount);
         printf("  queuefile_pattern  %s\n",   current->queuefile_pattern);
         printf("    cycle_shift      %d\n",   current->cycle_shift);
         printf("    roll_epoch       %d\n",   current->roll_epoch);
@@ -502,13 +502,13 @@ K shmipc_debug(K x) {
             printf("    callback         %p\n",   tailer->callback);
             int cycle = tailer->index >> current->cycle_shift;
             int seqnum = tailer->index & current->seqnum_mask;
-            printf("    index            %llu (cycle %d, seqnum %d)\n", tailer->index, cycle, seqnum);
+            printf("    index            %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->index, cycle, seqnum);
             printf("    state            %d - %s\n", tailer->state, state_text);
             printf("    qf_fn            %s\n",   tailer->qf_fn);
             printf("    qf_fd            %d\n",   tailer->qf_fd);
-            printf("    qf_statbuf_sz    %lld\n", tailer->qf_statbuf.st_size);
-            printf("    qf_tip           %llu\n", tailer->qf_tip);
-            printf("    qf_extent        %llu\n", tailer->qf_extent);
+            printf("    qf_statbuf_sz    %" PRIu64 "\n", (uint64_t)tailer->qf_statbuf.st_size);
+            printf("    qf_tip           %" PRIu64 "\n", tailer->qf_tip);
+            printf("    qf_extent        %" PRIu64 "\n", tailer->qf_extent);
             printf("    qf_buf           %p\n",   tailer->qf_buf);
             tailer = tailer->next;
         }
@@ -560,11 +560,11 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     if (item == NULL) return krr("dir must be shmipc.init[] first");
 
     // decompose index into cycle (file) and seqnum within file
-    J index = kindex->j;
+    uint64_t index = kindex->j;
     int cycle = index >> item->cycle_shift;
     int seqnum = index & item->seqnum_mask;
 
-    printf("shmipc: tailer added index=%llu (cycle=%d seqnum=%d)\n", index, cycle, seqnum);
+    printf("shmipc: tailer added index=%" PRIu64 " (cycle=%d seqnum=%d)\n", index, cycle, seqnum);
     if (cycle < item->lowest_cycle) {
         index = item->lowest_cycle << item->cycle_shift;
     }

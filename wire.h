@@ -96,7 +96,7 @@ void parse_wire(unsigned char* base, int lim, uint64_t index, wirecallbacks_t* c
                 // length/used a, then length*64-bit ints. used for index structured, so expose ptr
                 memcpy(&padding64, p, sizeof(padding64));
                 memcpy(&jlong2, p+8, sizeof(jlong2));
-                if (wire_trace) printf(" Field %.*s = [...] (I64_ARRAY) used %llu/%llu\n", field_name_sz, field_name, jlong2, padding64);
+                if (wire_trace) printf(" Field %.*s = [...] (I64_ARRAY) used %" PRIu64 "/%" PRIu64 "\n", field_name_sz, field_name, jlong2, padding64);
                 p += 16;
                 if (cbs->ptr_uint64arr) cbs->ptr_uint64arr(field_name, field_name_sz, jlong2, padding64, p, cbs);
                 p += 8*padding64;
@@ -115,7 +115,7 @@ void parse_wire(unsigned char* base, int lim, uint64_t index, wirecallbacks_t* c
                 break;
             case 0xA7: // INT64
                 memcpy(&padding64, p, sizeof(padding64));
-                if (wire_trace) printf(" Field %.*s = %llu\n", field_name_sz, field_name, padding64);
+                if (wire_trace) printf(" Field %.*s = %" PRIu64 "\n", field_name_sz, field_name, padding64);
                 if (cbs->ptr_uint64) cbs->ptr_uint64(ev_name, ev_name_sz, p, cbs);
                 if (cbs->field_uint64) cbs->field_uint64(field_name, field_name_sz, padding64, cbs);
                 p += 8;
@@ -160,7 +160,7 @@ void parse_wire2(unsigned char* base, int lim, uint64_t index, void* cbs) {
 }
 
 void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
-    printf(" text: %llu %d '%.*s'\n", index, lim, lim, base);
+    printf(" text: %" PRIu64 " %d '%.*s'\n", index, lim, lim, base);
 }
 
 
