@@ -18,10 +18,13 @@ ODIR=obj
 LIBS=-lm
 DEPS = k.h wire.h
 
-all: obj/cpu.so obj/hpet.so obj/shmipc.so
+all: obj/cpu.so obj/hpet.so obj/shmipc.so obj/shmmain
 
 $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS)
+
+$(ODIR)/shmmain: shmmain.c shmipc.c $(DEPS)
+	$(CC) -o $@ $< -DKXVER=3 -g -fPIC -I$(IDIR)
 
 .PHONY: clean
 

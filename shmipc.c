@@ -610,14 +610,17 @@ K shmipc_close(K dir) {
                 if (tailer->qf_fd) { // if open() open...
                     close(tailer->qf_fd);
                 }
-                tailer = tailer->next;
+                tailer_t* next_tmp = tailer->next;
+                free(tailer);
+                tailer = next_tmp;
             }
-
+            queue->tailers = NULL;
             // kill queue
             munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
             close(queue->dirlist_fd);
             free(queue->dirlist_name);
             free(queue->queuefile_pattern);
+            free(queue->roll_format);
             globfree(&queue->queuefile_glob);
             free(queue);
 
