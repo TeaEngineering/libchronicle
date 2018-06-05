@@ -150,6 +150,7 @@ K shmipc_init(K dir, K parser) {
     // allocate struct, we'll link if all checks pass
     item = malloc(sizeof(queue_t));
     if (item == NULL) return krr("m fail");
+    bzero(&item, sizeof(queue_t));
 
     // dir is on the stack, but dir->s points to the heap interned table. safe to use ref to q
     item->dirname = &dir->s[1];
@@ -463,6 +464,7 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
             close(tailer->qf_fd);
         }
         free(tailer->qf_fn);
+        tailer->qf_fn = NULL;
     }
     return 0;
 }
@@ -570,6 +572,7 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     // allocate struct, we'll link if all checks pass
     tailer_t* tailer = malloc(sizeof(tailer_t));
     if (tailer == NULL) return krr("tm fail");
+    bzero(&tailer, sizeof(tailer_t));
 
     tailer->index = index;
     tailer->callback = cb;
