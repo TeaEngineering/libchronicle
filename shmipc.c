@@ -100,6 +100,7 @@ typedef struct queue {
 
     char* (*cycle2file_fn)(struct queue*,int);
 
+    parsedata_f       parser;
     tailer_t*         tailers;
 
     // the appender is a shared tailer, polled by append[], with writing logic
@@ -117,7 +118,7 @@ queue_t *queue_head = NULL;
 // forward declarations
 void parse_dirlist(queue_t *item);
 void parse_queuefile_meta(unsigned char* base, queue_t *item);
-void parse_queuefile_data(unsigned char* base, queue_t *item, uint64_t index);
+void parse_queuefile_data(unsigned char* base, queue_t *queue, tailer_t *tailer, uint64_t index);
 int shmipc_peek_tailer(queue_t*, tailer_t*);
 
 char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
@@ -133,9 +134,20 @@ char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
     return buf;
 }
 
+void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
+    tailer_t* tailer = (tailer_t*)userdata;
+    printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
+
+    // prep args and fire callback
+    K msg = ktn(KC, lim); // don't free this, handed over to q interp
+    memcpy((char*)msg->G0, base, lim);
+    K arg = knk(2, kj(index), msg);
+    K r = dot(tailer->callback, arg);
+}
+
 K shmipc_init(K dir, K parser) {
     if (dir->t != -KS) return krr("dir is not symbol");
-    if (dir->s[0] != ':') return krr("dir is not symbol handle :");
+    if (dir->s[0] != ':') return krr("dir is not symbol handle (starts with :)");
     if (dir->t != -KS) return krr("parser is not symbol");
 
     debug = getenv("SHMIPC_DEBUG");
@@ -243,6 +255,7 @@ K shmipc_init(K dir, K parser) {
     // verify user-specified parser for data segments
     if (strncmp(parser->s, "text", 5) == 0) {
         printf("shmipc: format set to text\n");
+        item->parser = &parse_data_text;
     } else {
         return krr("bad format");
     }
@@ -383,15 +396,13 @@ void parse_queuefile_meta(unsigned char* base, queue_t *item) {
     parse_queue_block(base, n, &hcbs, NULL, NULL);
 }
 
-void parse_queuefile_data(unsigned char* base, queue_t *item, uint64_t cycle) {
+void parse_queuefile_data(unsigned char* base, queue_t *queue, tailer_t *tailer, uint64_t cycle) {
     // our mmap is the size of the fstat, so bound the replay
-    uint64_t index = cycle << item->cycle_shift;
+    uint64_t index = cycle << queue->cycle_shift;
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
-    hcbs.userdata = item;
-    parse_queue_block(base, index, &hcbs, &parse_data_text, NULL);
+    parse_queue_block(base, index, &hcbs, queue->parser, tailer);
 }
-
 
 K shmipc_peek(K x) {
     queue_t *queue = queue_head;
@@ -460,7 +471,7 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
                 return -3;
 
             // TODO for each blocksize in mmap + overhang
-            parse_queuefile_data(tailer->qf_buf, queue, i);
+            parse_queuefile_data(tailer->qf_buf, queue, tailer, i);
 
             // close queuefile
             munmap(tailer->qf_buf, tailer->qf_statbuf.st_size);
