@@ -49,14 +49,14 @@ int main(const int argc, char **argv) {
 	per(shmipc_init(dir, parser));
 	per(shmipc_debug((K)NULL));
 	per(shmipc_peek(dir));
-	per(shmipc_debug((K)NULL));
-	per(shmipc_debug((K)NULL));
 
 	K cb = dl(&printxy, 2);
 	K index = kj(0);
 	per(shmipc_tailer(dir,cb,index));
 	per(shmipc_debug((K)NULL));
 	per(shmipc_peek(dir));
+	per(shmipc_debug((K)NULL));
+
 	printf("closing down\n");
 	per(shmipc_close(dir));
 	per(shmipc_debug((K)NULL));

@@ -78,7 +78,7 @@ typedef struct tailer {
 typedef struct queue {
     char*             dirname;
     char*             hsymbolp;
-    int               blocksize;
+    uint              blocksize;
 
     // directory-listing.cq4t
     char*             dirlist_name;
@@ -181,7 +181,7 @@ K shmipc_init(K dir, K parser) {
 
     // dir is on the stack, but dir->s points to the heap interned table. safe to use ref to q
     item->dirname = &dir->s[1];
-    item->blocksize = 512*1024; // must be a power of two (single 1 bit)
+    item->blocksize = 1024*1024; // must be a power of two (single 1 bit)
 
     // Is this a directory
     struct stat statbuf;
@@ -443,7 +443,7 @@ void shmipc_peek_queue(queue_t *queue) {
     memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
 
     if (queue->modcount != modcount) {
-        printf(" %s modcount changed from %" PRIu64 " to %" PRIu64 "\n", queue->hsymbolp, queue->modcount, modcount);
+        printf("shmipc: %s modcount changed from %" PRIu64 " to %" PRIu64 "\n", queue->hsymbolp, queue->modcount, modcount);
         // slowpath poll
         memcpy(&queue->modcount, queue->dirlist_fields.modcount, sizeof(modcount));
         memcpy(&queue->lowest_cycle, queue->dirlist_fields.lowest_cycle, sizeof(modcount));
@@ -459,14 +459,13 @@ void shmipc_peek_queue(queue_t *queue) {
 }
 
 // return codes exposed via. tailer-> state
-//     1    hit working
-//     0    awaiting next entry
-//     -1   missing queuefile indicated, awaiting advance or creation
-//     -2   fstat failed
-//     -3   mmap failed (probably fatal)
-//     -4   queue file locked, awaiting unlock
-//     -5   reached EOF entry
-const char* tailer_state_messages[] = {"AWAITING", "E_STAT", "E_MMAP", "E_LOCK", "E_EOF"};
+//     0   awaiting next entry
+//     1   hit working
+//     2   missing queuefile indicated, awaiting advance or creation
+//     3   fstat failed
+//     4   mmap failed (probably fatal)
+//     5   not yet polled
+const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?"};
 
 int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
     // for each cycle file { for each block { for each entry { emit }}}
@@ -495,22 +494,21 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
 
             printf("shmipc: opening cycle %" PRIu64 " filename %s\n", cycle, tailer->qf_fn);
             if ((tailer->qf_fd = open(tailer->qf_fn, O_RDONLY)) < 0) {
-                printf("shmipc: missing queuefile for %s %d errno=%d\n", tailer->qf_fn, tailer->qf_fd, errno);
+                printf("shmipc:  awaiting queuefile for %s %d errno=%d\n", tailer->qf_fn, tailer->qf_fd, errno);
 
                 // if our cycle < highCycle, permitted to skip a missing file rather than wait
                 if (cycle < queue->highest_cycle) {
                     uint64_t skip_to_cycle = (cycle + 1) << queue->cycle_shift;
-                    printf("shmipc: missing queue file for < highest_cycle, skipping, bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, skip_to_cycle);
+                    printf("shmipc:  skipping queuefile (cycle < highest_cycle), bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, skip_to_cycle);
                     tailer->next_index = skip_to_cycle;
                     continue;
                 }
-                return -1;
+                return 2;
             }
             tailer->qf_cycle_open = cycle;
 
             // renew the stat
-            if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
-                return -2;
+            if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0) return 3;
         }
 
         // assert: we have open fid
@@ -525,17 +523,18 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
         //  addr               qf_buf
         // assign mmap limit and offset from tip and blocksize
 
+        // note: blocksize may have changed, unroll this to a constant with care
         uint64_t blocksize_mask = ~(queue->blocksize-1);
         uint64_t mmapoff = tailer->qf_tip & blocksize_mask;
 
         // renew stat if we would otherwise map less than 2* blocksize
         if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize) {
             if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
-                return -2;
+                return 3;
         }
 
         int limit = tailer->qf_statbuf.st_size - mmapoff > 2*queue->blocksize ? 2*queue->blocksize : tailer->qf_statbuf.st_size - mmapoff;
-        printf("shmipc:  tip %llu -> mmapoff %llx size 0x%x  blocksize_mask 0x%llx\n", tailer->qf_tip, mmapoff, limit, blocksize_mask);
+        if (debug) printf("shmipc:  tip %llu -> mmapoff %llx size 0x%x  blocksize_mask 0x%llx\n", tailer->qf_tip, mmapoff, limit, blocksize_mask);
 
         // only re-mmap if desired window has changed since last scan
         if (tailer->qf_buf == NULL || mmapoff != tailer->qf_mmapoff || limit != tailer->qf_mmapsz) {
@@ -548,7 +547,7 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
             tailer->qf_mmapoff = mmapoff;
             if ((tailer->qf_buf = mmap(0, tailer->qf_mmapsz, PROT_READ, MAP_SHARED, tailer->qf_fd, tailer->qf_mmapoff)) == MAP_FAILED) {
                 tailer->qf_buf = NULL;
-                return -3;
+                return 4;
             }
             printf("shmipc:  mmap offset %llx size %llx base=%p extent=%p\n", tailer->qf_mmapoff, tailer->qf_mmapsz, tailer->qf_buf, tailer->qf_buf+tailer->qf_mmapsz);
         }
@@ -565,11 +564,17 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
         //    4  hit data with no data parser (won't happen)
         // if any entries are read the values at basep and indexp are updated
         int s = parse_queue_block(&basep, &index, extent, &hcbs, queue->parser, tailer);
-        printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
+        //printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
+
+        if (s == 3 && basep == basep_old) {
+            uint new_blocksize = queue->blocksize << 1;
+            printf("shmipc:  parser starved and stuck, doubling blocksize from %x to %x\n", queue->blocksize, new_blocksize);
+            queue->blocksize = new_blocksize;
+        }
 
         if (basep != basep_old) {
             uint64_t new_tip = basep-tailer->qf_buf + tailer->qf_mmapoff;
-            printf("shmipc: barser moved shm %p to %p, file %llu -> %llu\n", basep_old, basep, tailer->qf_tip, new_tip);
+            printf("shmipc:  parser moved shm %p to %p, file %llu -> %llu\n", basep_old, basep, tailer->qf_tip, new_tip);
             tailer->qf_tip = new_tip;
             tailer->next_index = index;
         }
@@ -579,9 +584,8 @@ int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
         if (s == 2) {
             // we've read an EOF marker, so the next expected index is cycle++, seqnum=0
             uint64_t eof_cycle = ((tailer->next_index >> queue->cycle_shift) + 1) << queue->cycle_shift;
-            printf("shmipc: Hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, eof_cycle);
+            printf("shmipc:  hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, eof_cycle);
             tailer->next_index = eof_cycle;
-            continue;
         }
     }
     return 0;
@@ -612,8 +616,7 @@ K shmipc_debug(K x) {
         printf("  tailers:\n");
         tailer_t *tailer = current->tailers; // shortcut to save both collections
         while (tailer != NULL) {
-            const char* state_text = "";
-            if (tailer->state < 0) state_text = tailer_state_messages[-tailer->state];
+            const char* state_text = tailer_state_messages[tailer->state];
             printf("    callback         %p\n",   tailer->callback);
             int cycle = tailer->next_index >> current->cycle_shift;
             int seqnum = tailer->next_index & current->seqnum_mask;
@@ -695,6 +698,7 @@ K shmipc_tailer(K dir, K cb, K kindex) {
 
     tailer->next_index = index;
     tailer->callback = cb;
+    tailer->state = 5;
 
     tailer->next = item->tailers;
     item->tailers = tailer;
