@@ -23,7 +23,7 @@ all: obj/cpu.so obj/hpet.so obj/shmipc.so obj/shmmain
 $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS)
 
-$(ODIR)/shmmain: shmmain.c shmipc.c $(DEPS)
+$(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< -DKXVER=3 -g -fPIC -I$(IDIR)
 
 .PHONY: clean
