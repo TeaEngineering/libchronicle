@@ -55,16 +55,23 @@ typedef struct {
 } dirlist_fields_t;
 
 typedef struct tailer {
-    uint64_t          index;
+    uint64_t          next_index; // the next index we will dispatch
     int               state;
-
-    char*             qf_fn;
-    int               qf_fd;
-    struct stat       qf_statbuf;
-    uint64_t          qf_extent;
-    unsigned char*    qf_buf;
-    uint64_t          qf_tip; // byte position of the next header within qf_fd
     K                 callback;
+
+    // currently open queue file
+    uint64_t          qf_cycle_open;
+    char*             qf_fn;
+    struct stat       qf_statbuf;
+    int               qf_fd;
+
+    uint64_t          qf_tip; // byte position of the next header, or zero if unknown
+
+    // currently mapped region: buffer, offset (from 0 in file), size
+    unsigned char*    qf_buf;
+    uint64_t          qf_mmapoff;
+    uint64_t          qf_mmapsz;
+
     struct tailer*    next;
 } tailer_t;
 
@@ -117,9 +124,10 @@ queue_t *queue_head = NULL;
 
 // forward declarations
 void parse_dirlist(queue_t *item);
-void parse_queuefile_meta(unsigned char* base, queue_t *item);
-void parse_queuefile_data(unsigned char* base, queue_t *queue, tailer_t *tailer, uint64_t index);
+void parse_queuefile_meta(unsigned char*, int, queue_t*);
+void parse_queuefile_data(unsigned char*, int, queue_t*, tailer_t*, uint64_t);
 int shmipc_peek_tailer(queue_t*, tailer_t*);
+void shmipc_peek_queue(queue_t*);
 
 char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
     char* buf;
@@ -136,13 +144,15 @@ char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
 
 void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
-    printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
+    if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
 
     // prep args and fire callback
     K msg = ktn(KC, lim); // don't free this, handed over to q interp
     memcpy((char*)msg->G0, base, lim);
     K arg = knk(2, kj(index), msg);
     K r = dot(tailer->callback, arg);
+    r0(arg);
+    r0(r);
 }
 
 K shmipc_init(K dir, K parser) {
@@ -171,7 +181,7 @@ K shmipc_init(K dir, K parser) {
 
     // dir is on the stack, but dir->s points to the heap interned table. safe to use ref to q
     item->dirname = &dir->s[1];
-    item->blocksize = 1024;
+    item->blocksize = 512*1024; // must be a power of two (single 1 bit)
 
     // Is this a directory
     struct stat statbuf;
@@ -229,15 +239,19 @@ K shmipc_init(K dir, K parser) {
     }
     if (fstat(queuefile_fd, &queuefile_statbuf) < 0)
         return krr("qfi fstat");
-    if ((queuefile_buf = mmap(0, queuefile_statbuf.st_size, PROT_READ, MAP_SHARED, queuefile_fd, 0)) == MAP_FAILED)
+
+    // we onlt need the first block
+    queuefile_extent = queuefile_statbuf.st_size < item->blocksize ? queuefile_statbuf.st_size : item->blocksize;
+
+    if ((queuefile_buf = mmap(0, queuefile_extent, PROT_READ, MAP_SHARED, queuefile_fd, 0)) == MAP_FAILED)
         return krr("qfi mmap fail");
 
     // we don't need a data-parser at this stage as we only need values from the header
-    printf("shmipc: parsing queuefile %s\n", fn);
-    parse_queuefile_meta(queuefile_buf, item);
+    printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
+    parse_queuefile_meta(queuefile_buf, queuefile_extent, item);
 
     // close queuefile
-    munmap(queuefile_buf, queuefile_statbuf.st_size);
+    munmap(queuefile_buf, queuefile_extent);
     close(queuefile_fd);
 
     // check we loaded some rollover settings from queuefile
@@ -267,12 +281,12 @@ K shmipc_init(K dir, K parser) {
 
     printf("shmipc: init complete\n");
 
-    if (debug) {
-        printf("shmipc: opening");
-    }
+    // avoids a tailer registration before we have a minimum cycle
+    shmipc_peek_queue(item);
+
     return (K)NULL;
 
-    // wip: unwinder
+    // wip: kernel style unwinder
 //unwind_1:
     free(item->dirlist_name);
     free(item->queuefile_pattern);
@@ -287,44 +301,58 @@ K shmipc_init(K dir, K parser) {
 
 }
 
-void parse_queue_block(unsigned char* base, uint64_t seqnum, wirecallbacks_t* hcbs, parsedata_f parse_data, void* userdata) {
-
+// return codes
+//    0  awaiting at &base
+//    1  we hit working
+//    2  we hit EOF
+//    3  data extent will cross base+limit
+//    4  hit data with no data parser
+// if any entries are read the values at basep and indexp are updated
+//
+int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* extent, wirecallbacks_t* hcbs, parsedata_f parse_data, void* userdata) {
     uint32_t header;
     int sz;
+    unsigned char* base = *basep;
+    uint64_t index = *indexp;
+
     while (1) {
+        if (base+4 >= extent) return 6;
         memcpy(&header, base, sizeof(header)); // relax, fn optimised away
         // no speculative fetches before the header is read
         asm volatile ("mfence" ::: "memory");
 
         if (header == HD_UNALLOCATED) {
-            printf(" %" PRIu64 " @%p unallocated\n", seqnum, base);
-            return;
+            if (debug) printf(" %" PRIu64 " @%p unallocated\n", index, base);
+            return 0;
         } else if ((header & HD_MASK_META) == HD_WORKING) {
-            printf(" @%p locked for writing by pid %d\n", base, header & HD_MASK_LENGTH);
-            return;
+            if (debug) printf(" @%p locked for writing by pid %d\n", base, header & HD_MASK_LENGTH);
+            return 1;
         } else if ((header & HD_MASK_META) == HD_METADATA) {
             sz = (header & HD_MASK_LENGTH);
-            printf(" @%p metadata size %x\n", base, sz);
+            if (debug) printf(" @%p metadata size %x\n", base, sz);
+            if (base+4+sz >= extent) return 3;
             parse_wire(base+4, sz, 0, hcbs);
             // EventName  header
             //   switch to header parser
         } else if ((header & HD_MASK_META) == HD_EOF) {
-            printf(" @%p EOF\n", base);
-            return;
+            if (debug) printf(" @%p EOF\n", base);
+            return 2;
         } else {
             sz = (header & HD_MASK_LENGTH);
-            printf(" %" PRIu64 " @%p data size %x\n", seqnum, base, sz);
+            if (debug) printf(" %" PRIu64 " @%p data size %x\n", index, base, sz);
             if (parse_data) {
-                parse_data(base+4, sz, seqnum, userdata);
+                if (base+4+sz >= extent) return 3;
+                parse_data(base+4, sz, index, userdata);
             } else {
                 // bail at first data message
-                return;
+                return 4;
             }
-            seqnum++;
+            index++;
+            *indexp = index;
         }
-        int align = ((sz & 0x0000003F) >= 60) ? -60 + (sz & 0x3F) : 0;
-        // printf("  %p + 4 + size %d + align %x\n", base, sz, align);
-        base = base + 4 + sz + align;
+
+        base = base + 4 + sz;
+        *basep = base;
     }
 }
 
@@ -369,10 +397,10 @@ void handle_qf_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t* cbs
 }
 
 void parse_dirlist(queue_t *item) {
-    // our mmap is the size of the fstat, so bound the replay
+    // dirlist mmap is the size of the fstat
     int lim = item->dirlist_statbuf.st_size;
-    int n = 0;
     unsigned char* base = item->dirlist;
+    uint64_t index = 0;
 
     wirecallbacks_t cbs;
     bzero(&cbs, sizeof(cbs));
@@ -381,11 +409,12 @@ void parse_dirlist(queue_t *item) {
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
-    parse_queue_block(base, n, &hcbs, &parse_wire2, &cbs);
+    parse_queue_block(&base, &index, base+lim, &hcbs, &parse_wire2, &cbs);
 }
 
-void parse_queuefile_meta(unsigned char* base, queue_t *item) {
-    int n = 0;
+void parse_queuefile_meta(unsigned char* base, int limit, queue_t *item) {
+    uint64_t index = 0;
+
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
     hcbs.field_uint32 = &handle_qf_uint32;
@@ -393,52 +422,44 @@ void parse_queuefile_meta(unsigned char* base, queue_t *item) {
     hcbs.field_uint8 =  &handle_qf_uint8;
     hcbs.field_char = &handle_qf_text;
     hcbs.userdata = item;
-    parse_queue_block(base, n, &hcbs, NULL, NULL);
-}
-
-void parse_queuefile_data(unsigned char* base, queue_t *queue, tailer_t *tailer, uint64_t cycle) {
-    // our mmap is the size of the fstat, so bound the replay
-    uint64_t index = cycle << queue->cycle_shift;
-    wirecallbacks_t hcbs;
-    bzero(&hcbs, sizeof(hcbs));
-    parse_queue_block(base, index, &hcbs, queue->parser, tailer);
+    parse_queue_block(&base, &index, base+limit, &hcbs, NULL, NULL);
 }
 
 K shmipc_peek(K x) {
     queue_t *queue = queue_head;
-    uint64_t modcount;
-
     while (queue != NULL) {
-        printf("peeking at %s\n", queue->hsymbolp);
-
-        // poll shared directory for modcount
-        // TODO: check header unlocked?
-        memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
-
-        if (queue->modcount != modcount) {
-            printf(" %s modcount changed from %" PRIu64 " to %" PRIu64 " - scanning\n", queue->hsymbolp, queue->modcount, modcount);
-            // slowpath poll
-            memcpy(&queue->modcount, queue->dirlist_fields.modcount, sizeof(modcount));
-            memcpy(&queue->lowest_cycle, queue->dirlist_fields.lowest_cycle, sizeof(modcount));
-            memcpy(&queue->highest_cycle, queue->dirlist_fields.highest_cycle, sizeof(modcount));
-
-            // now scan filenames as directory contents changed
-        }
-
-        tailer_t *tailer = queue->tailers; // shortcut to save both collections
-        while (tailer != NULL) {
-            shmipc_peek_tailer(queue, tailer);
-
-            tailer = tailer->next;
-        }
-
+        shmipc_peek_queue(queue);
         queue = queue->next;
     }
-    return ki(0);
+    return (K)0;
 }
 
+void shmipc_peek_queue(queue_t *queue) {
+    uint64_t modcount;
+    printf("peeking at %s\n", queue->hsymbolp);
+
+    // poll shared directory for modcount
+    // TODO: check header unlocked?
+    memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
+
+    if (queue->modcount != modcount) {
+        printf(" %s modcount changed from %" PRIu64 " to %" PRIu64 "\n", queue->hsymbolp, queue->modcount, modcount);
+        // slowpath poll
+        memcpy(&queue->modcount, queue->dirlist_fields.modcount, sizeof(modcount));
+        memcpy(&queue->lowest_cycle, queue->dirlist_fields.lowest_cycle, sizeof(modcount));
+        memcpy(&queue->highest_cycle, queue->dirlist_fields.highest_cycle, sizeof(modcount));
+    }
+
+    tailer_t *tailer = queue->tailers;
+    while (tailer != NULL) {
+        tailer->state = shmipc_peek_tailer(queue, tailer);
+
+        tailer = tailer->next;
+    }
+}
 
 // return codes exposed via. tailer-> state
+//     1    hit working
 //     0    awaiting next entry
 //     -1   missing queuefile indicated, awaiting advance or creation
 //     -2   fstat failed
@@ -449,36 +470,119 @@ const char* tailer_state_messages[] = {"AWAITING", "E_STAT", "E_MMAP", "E_LOCK",
 
 int shmipc_peek_tailer(queue_t *queue, tailer_t *tailer) {
     // for each cycle file { for each block { for each entry { emit }}}
-    // we need to be able to run this like a generator... suspend in the innermost
-    // iteration when we hit the end of the file and pick up at the next poll()
+    // this method run like a generator, suspended in the innermost
+    // iteration when we hit the end of the file and pick up at the next peek()
+    wirecallbacks_t hcbs;
+    bzero(&hcbs, sizeof(hcbs));
 
-    // convert cycle to filename
-    uint64_t cycle = tailer->index >> queue->cycle_shift;
+    while (1) {
 
-    for (uint64_t i = cycle; i <= queue->highest_cycle; i++) {
-        tailer->qf_fn = queue->cycle2file_fn(queue, i);
-        printf("cycle %" PRIu64 " filename %s\n", i, tailer->qf_fn);
+        uint64_t cycle = tailer->next_index >> queue->cycle_shift;
+        if (cycle != tailer->qf_cycle_open || tailer->qf_fn == NULL) {
+            // free fn, mmap and fid
+            if (tailer->qf_fn) {
+                free(tailer->qf_fn);
+            }
+            if (tailer->qf_buf) {
+                munmap(tailer->qf_buf, tailer->qf_mmapsz);
+                tailer->qf_buf = NULL;
+            }
+            if (tailer->qf_fd > 0) { // close the fid if open
+                close(tailer->qf_fd);
+            }
+            tailer->qf_fn = queue->cycle2file_fn(queue, cycle);
+            tailer->qf_tip = 0;
 
-        // find size of dirlist and mmap
-        if ((tailer->qf_fd = open(tailer->qf_fn, O_RDONLY)) < 0) {
-            printf("shmipc: missing queuefile for %s %d errno=%d\n", tailer->qf_fn, tailer->qf_fd, errno);
-            return -1;
-        } else {
+            printf("shmipc: opening cycle %" PRIu64 " filename %s\n", cycle, tailer->qf_fn);
+            if ((tailer->qf_fd = open(tailer->qf_fn, O_RDONLY)) < 0) {
+                printf("shmipc: missing queuefile for %s %d errno=%d\n", tailer->qf_fn, tailer->qf_fd, errno);
+
+                // if our cycle < highCycle, permitted to skip a missing file rather than wait
+                if (cycle < queue->highest_cycle) {
+                    uint64_t skip_to_cycle = (cycle + 1) << queue->cycle_shift;
+                    printf("shmipc: missing queue file for < highest_cycle, skipping, bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, skip_to_cycle);
+                    tailer->next_index = skip_to_cycle;
+                    continue;
+                }
+                return -1;
+            }
+            tailer->qf_cycle_open = cycle;
+
+            // renew the stat
             if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
                 return -2;
-
-            if ((tailer->qf_buf = mmap(0, tailer->qf_statbuf.st_size, PROT_READ, MAP_SHARED, tailer->qf_fd, 0)) == MAP_FAILED)
-                return -3;
-
-            // TODO for each blocksize in mmap + overhang
-            parse_queuefile_data(tailer->qf_buf, queue, tailer, i);
-
-            // close queuefile
-            munmap(tailer->qf_buf, tailer->qf_statbuf.st_size);
-            close(tailer->qf_fd);
         }
-        free(tailer->qf_fn);
-        tailer->qf_fn = NULL;
+
+        // assert: we have open fid
+
+        //                        qf_tip
+        //    file  0               v          stat.sz
+        //          [-------------#######-------]
+        //    map                 #######
+        //                        ^      ^
+        //                     mmapoff  +mmapsz
+        //                          | basep
+        //  addr               qf_buf
+        // assign mmap limit and offset from tip and blocksize
+
+        uint64_t blocksize_mask = ~(queue->blocksize-1);
+        uint64_t mmapoff = tailer->qf_tip & blocksize_mask;
+
+        // renew stat if we would otherwise map less than 2* blocksize
+        if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize) {
+            if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
+                return -2;
+        }
+
+        int limit = tailer->qf_statbuf.st_size - mmapoff > 2*queue->blocksize ? 2*queue->blocksize : tailer->qf_statbuf.st_size - mmapoff;
+        printf("shmipc:  tip %llu -> mmapoff %llx size 0x%x  blocksize_mask 0x%llx\n", tailer->qf_tip, mmapoff, limit, blocksize_mask);
+
+        // only re-mmap if desired window has changed since last scan
+        if (tailer->qf_buf == NULL || mmapoff != tailer->qf_mmapoff || limit != tailer->qf_mmapsz) {
+            if ((tailer->qf_buf)) {
+                munmap(tailer->qf_buf, tailer->qf_mmapsz);
+                tailer->qf_buf = NULL;
+            }
+
+            tailer->qf_mmapsz = limit;
+            tailer->qf_mmapoff = mmapoff;
+            if ((tailer->qf_buf = mmap(0, tailer->qf_mmapsz, PROT_READ, MAP_SHARED, tailer->qf_fd, tailer->qf_mmapoff)) == MAP_FAILED) {
+                tailer->qf_buf = NULL;
+                return -3;
+            }
+            printf("shmipc:  mmap offset %llx size %llx base=%p extent=%p\n", tailer->qf_mmapoff, tailer->qf_mmapsz, tailer->qf_buf, tailer->qf_buf+tailer->qf_mmapsz);
+        }
+
+        unsigned char* basep = (tailer->qf_tip - tailer->qf_mmapoff) + tailer->qf_buf; // basep within mmap
+        unsigned char* basep_old = basep;
+        unsigned char* extent = tailer->qf_buf+tailer->qf_mmapsz;
+        uint64_t index = tailer->next_index;
+
+        //    0  awaiting at &base  (pass)
+        //    1  we hit working     (pass)
+        //    2  we hit EOF         (handle)
+        //    3  data extent will cross base+limit (handle)
+        //    4  hit data with no data parser (won't happen)
+        // if any entries are read the values at basep and indexp are updated
+        int s = parse_queue_block(&basep, &index, extent, &hcbs, queue->parser, tailer);
+        printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
+
+        if (basep != basep_old) {
+            uint64_t new_tip = basep-tailer->qf_buf + tailer->qf_mmapoff;
+            printf("shmipc: barser moved shm %p to %p, file %llu -> %llu\n", basep_old, basep, tailer->qf_tip, new_tip);
+            tailer->qf_tip = new_tip;
+            tailer->next_index = index;
+        }
+
+        if (s == 0 || s == 1) return s;
+
+        if (s == 2) {
+            // we've read an EOF marker, so the next expected index is cycle++, seqnum=0
+            uint64_t eof_cycle = ((tailer->next_index >> queue->cycle_shift) + 1) << queue->cycle_shift;
+            printf("shmipc: Hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, eof_cycle);
+            tailer->next_index = eof_cycle;
+            continue;
+        }
     }
     return 0;
 }
@@ -511,16 +615,17 @@ K shmipc_debug(K x) {
             const char* state_text = "";
             if (tailer->state < 0) state_text = tailer_state_messages[-tailer->state];
             printf("    callback         %p\n",   tailer->callback);
-            int cycle = tailer->index >> current->cycle_shift;
-            int seqnum = tailer->index & current->seqnum_mask;
-            printf("    index            %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->index, cycle, seqnum);
+            int cycle = tailer->next_index >> current->cycle_shift;
+            int seqnum = tailer->next_index & current->seqnum_mask;
+            printf("    next_index       %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->next_index, cycle, seqnum);
             printf("    state            %d - %s\n", tailer->state, state_text);
             printf("    qf_fn            %s\n",   tailer->qf_fn);
             printf("    qf_fd            %d\n",   tailer->qf_fd);
             printf("    qf_statbuf_sz    %" PRIu64 "\n", (uint64_t)tailer->qf_statbuf.st_size);
             printf("    qf_tip           %" PRIu64 "\n", tailer->qf_tip);
-            printf("    qf_extent        %" PRIu64 "\n", tailer->qf_extent);
             printf("    qf_buf           %p\n",   tailer->qf_buf);
+            printf("    qf_mmapsz        %" PRIu64 "\n", tailer->qf_mmapsz);
+            printf("    qf_mmapoff       %" PRIu64 "\n", tailer->qf_mmapoff);
             tailer = tailer->next;
         }
         current = current->next;
@@ -588,7 +693,7 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     if (tailer == NULL) return krr("tm fail");
     bzero(tailer, sizeof(tailer_t));
 
-    tailer->index = index;
+    tailer->next_index = index;
     tailer->callback = cb;
 
     tailer->next = item->tailers;
@@ -616,7 +721,7 @@ K shmipc_close(K dir) {
                     free(tailer->qf_fn);
                 }
                 if (tailer->qf_buf) { // if mmap() open...
-                    munmap(tailer->qf_buf, tailer->qf_extent);
+                    munmap(tailer->qf_buf, tailer->qf_mmapsz);
                 }
                 if (tailer->qf_fd) { // if open() open...
                     close(tailer->qf_fd);
