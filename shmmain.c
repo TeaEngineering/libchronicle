@@ -17,6 +17,13 @@ K printxy(K x, K y) {
 	return ki(5);
 }
 
+K kfrom_c_str(const char* s) { // k symbol from string?
+    int n = strlen(s);
+    K r = ktn(KC, n);
+    memcpy((char*)r->G0, s, n);
+    return r;
+}
+
 int main(const int argc, char **argv) {
 	int c;
 	opterr = 0;
@@ -57,6 +64,14 @@ int main(const int argc, char **argv) {
 	per(shmipc_peek(dir));
 	per(shmipc_debug((K)NULL));
 
+	printf("writing\n");
+	K msg = kfrom_c_str("message from c");
+    per(shmipc_appender(dir,msg));
+	per(shmipc_debug((K)NULL));
+
+	per(shmipc_peek(dir));
+	per(shmipc_debug((K)NULL));
+
 	printf("closing down\n");
 	per(shmipc_close(dir));
 	per(shmipc_debug((K)NULL));
@@ -65,6 +80,7 @@ int main(const int argc, char **argv) {
 	r0(parser);
 	r0(cb);
 	r0(index);
+	r0(msg);
 
 	return 0;
 }
