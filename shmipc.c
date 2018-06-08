@@ -457,7 +457,7 @@ K shmipc_peek(K x) {
 
 void shmipc_peek_queue(queue_t *queue) {
     uint64_t modcount;
-    printf("peeking at %s\n", queue->hsymbolp);
+    if (debug) printf("peeking at %s\n", queue->hsymbolp);
 
     // poll shared directory for modcount
     // TODO: check header unlocked?
@@ -598,7 +598,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
 
         if (basep != basep_old) {
             uint64_t new_tip = basep-tailer->qf_buf + tailer->qf_mmapoff;
-            printf("shmipc:  parser moved shm %p to %p, file %llu -> %llu\n", basep_old, basep, tailer->qf_tip, new_tip);
+            if (debug) printf("shmipc:  parser moved shm %p to %p, file %llu -> %llu\n", basep_old, basep, tailer->qf_tip, new_tip);
             tailer->qf_tip = new_tip;
             tailer->next_index = index;
         }
@@ -673,7 +673,7 @@ void shmipc_debug_tailer(queue_t* queue, tailer_t* tailer) {
     printf("    qf_mmapoff       %" PRIx64 "\n", tailer->qf_mmapoff);
 }
 
-K shmipc_appender(K dir, K msg) {
+K shmipc_append(K dir, K msg) {
     if (dir->t != -KS) return krr("dir is not symbol");
     if (dir->s[0] != ':') return krr("dir is not symbol handle :");
     if (msg->t != KC) return krr("msg must be KC");
