@@ -777,7 +777,8 @@ K shmipc_append(K dir, K msg) {
         if (tailer == NULL) return krr("am fail");
         bzero(tailer, sizeof(tailer_t));
 
-        tailer->qf_index = queue->highest_cycle << queue->cycle_shift;
+        // compat: writers do an extended lookback to patch missing EOFs
+        tailer->qf_index = queue->highest_cycle - 5 << queue->cycle_shift;
         tailer->callback = NULL;
         tailer->state = 5;
         tailer->mmap_protection = PROT_READ | PROT_WRITE;
@@ -820,6 +821,18 @@ K shmipc_append(K dir, K msg) {
         // by looking for HD_UNALLOCATED. If we read a working bit or finished size, we lost.
         if (ret == HD_UNALLOCATED) {
             asm volatile ("mfence" ::: "memory");
+
+            // Java does not patch EOF on prev files if it is down during the roll, it
+            // just starts a new file. As a workaround their readers 'timeout' the wait for EOF
+            // if a higher cycle is known for the queue. I'd like to be as correct as possible, so
+            // we'll patch missing EOFs during our writes if we hold the lock. This will nudge on any
+            // readers who haven't noticed the roll.
+            if (appender->qf_index < queue->highest_cycle << queue->cycle_shift) {
+                printf("shmipc: got write lock, but about to write to queuefile < maxcycle, writing EOF.");
+                uint32_t header = HD_EOF;
+                memcpy(ptr, &header, sizeof(header));
+                continue; // retry write in next queuefile
+            }
 
             // TODO - use encoder
             memcpy(ptr+4, (char*)msg->G0, msg->n);
