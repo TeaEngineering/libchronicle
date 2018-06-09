@@ -823,24 +823,24 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     if (kindex->t != -KJ) return krr("index must be J");
 
     // check if queue already open
-    queue_t *item = queue_head;
-    while (item != NULL) {
-        if (item->hsymbolp == dir->s) break;
-        item = item->next;
+    queue_t *queue = queue_head;
+    while (queue != NULL) {
+        if (queue->hsymbolp == dir->s) break;
+        queue = queue->next;
     }
-    if (item == NULL) return krr("dir must be shmipc.init[] first");
+    if (queue == NULL) return krr("dir must be shmipc.init[] first");
 
     // decompose index into cycle (file) and seqnum within file
     uint64_t index = kindex->j;
-    int cycle = index >> item->cycle_shift;
-    int seqnum = index & item->seqnum_mask;
+    int cycle = index >> queue->cycle_shift;
+    int seqnum = index & queue->seqnum_mask;
 
     printf("shmipc: tailer added index=%" PRIu64 " (cycle=%d seqnum=%d)\n", index, cycle, seqnum);
-    if (cycle < item->lowest_cycle) {
-        index = item->lowest_cycle << item->cycle_shift;
+    if (cycle < queue->lowest_cycle) {
+        index = queue->lowest_cycle << queue->cycle_shift;
     }
-    if (cycle > item->highest_cycle) {
-        index = item->highest_cycle << item->cycle_shift;
+    if (cycle > queue->highest_cycle) {
+        index = queue->highest_cycle << queue->cycle_shift;
     }
 
     // allocate struct, we'll link if all checks pass
