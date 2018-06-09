@@ -111,6 +111,7 @@ typedef struct queue {
 
     parsedata_f       parser;
     appenddata_f      encoder;
+    K (*encodecheck)(struct queue*, K);
 
     tailer_t*         tailers;
 
@@ -156,6 +157,12 @@ char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
     return buf;
 }
 
+void queue_double_blocksize(queue_t* queue) {
+    uint new_blocksize = queue->blocksize << 1;
+    printf("shmipc:  doubling blocksize from %x to %x\n", queue->blocksize, new_blocksize);
+    queue->blocksize = new_blocksize;
+}
+
 void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
     if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
@@ -173,6 +180,46 @@ void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdat
 
 int append_data_text(unsigned char* base, int lim, int* sz, K msg) {
     return 0;
+}
+
+K append_check_text(queue_t* queue, K msg) {
+    if (msg->t != KC) return krr("msg must be KC");
+    while (msg->n > queue->blocksize)
+        queue_double_blocksize(queue);
+    return msg;
+}
+
+void parse_data_kx(unsigned char* base, int lim, uint64_t index, void* userdata) {
+    tailer_t* tailer = (tailer_t*)userdata;
+
+    // prep args and fire callback
+    if (tailer->callback) {
+        K msg = ktn(KG, lim);
+        memcpy((char*)msg->G0, base, lim);
+        int ok = okx(msg);
+        if (ok) {
+            K out = d9(msg);
+            K arg = knk(2, kj(index), out);
+            K r = dot(tailer->callback, arg);
+            r0(arg);
+            r0(r);
+        } else {
+            printf("shmipc: caution index %" PRIu64 " bytes !ok as kx, skipping\n", index);
+        }
+        r0(msg);
+    }
+}
+
+int append_data_kx(unsigned char* base, int lim, int* sz, K msg) {
+    r0(msg);
+    return 0;
+}
+
+K append_check_kx(queue_t* queue, K msg) {
+    K r = b9(2, msg); // serialise before we take the writer lock
+    while (r->n > queue->blocksize)
+        queue_double_blocksize(queue);
+    return r;
 }
 
 K shmipc_init(K dir, K parser) {
@@ -287,13 +334,18 @@ K shmipc_init(K dir, K parser) {
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
 
     // verify user-specified parser for data segments
-    if (strncmp(parser->s, "text", 5) == 0) {
-        printf("shmipc: format set to text\n");
+    if (strncmp(parser->s, "text", parser->n) == 0) {
         item->parser = &parse_data_text;
         item->encoder = &append_data_text;
+        item->encodecheck = &append_check_text;
+    } else if (strncmp(parser->s, "kx", parser->n) == 0) {
+        item->parser = &parse_data_kx;
+        item->encoder = &append_data_kx;
+        item->encodecheck = &append_check_kx;
     } else {
-        return krr("bad format");
+        return krr("bad format: supports `kx and `text");
     }
+    printf("shmipc: format set to %.*s\n", (int)parser->n, parser->s);
 
     // Good to use
     item->next = queue_head;
@@ -591,9 +643,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         //printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
 
         if (s == 3 && basep == basep_old) {
-            uint new_blocksize = queue->blocksize << 1;
-            printf("shmipc:  parser starved and stuck, doubling blocksize from %x to %x\n", queue->blocksize, new_blocksize);
-            queue->blocksize = new_blocksize;
+            queue_double_blocksize(queue);
         }
 
         if (basep != basep_old) {
@@ -676,7 +726,6 @@ void shmipc_debug_tailer(queue_t* queue, tailer_t* tailer) {
 K shmipc_append(K dir, K msg) {
     if (dir->t != -KS) return krr("dir is not symbol");
     if (dir->s[0] != ':') return krr("dir is not symbol handle :");
-    if (msg->t != KC) return krr("msg must be KC");
 
     // Appending logic
     // 0) catch up to the end of the current file.
@@ -708,6 +757,10 @@ K shmipc_append(K dir, K msg) {
         queue = queue->next;
     }
     if (queue == NULL) return krr("dir must be shmipc.init[] first");
+
+    // caution: encodecheck may tweak blocksize, do not redorder below shmipc_peek_tailer
+    msg = queue->encodecheck(queue, msg); // abort write if r==0
+    if (msg == NULL) return msg;
 
     if (queue->appender == NULL) {
         tailer_t* tailer = malloc(sizeof(tailer_t));

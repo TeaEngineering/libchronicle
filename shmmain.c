@@ -27,11 +27,15 @@ K kfrom_c_str(const char* s) { // k symbol from string?
 int main(const int argc, char **argv) {
 	int c;
 	opterr = 0;
+	int kflag = 0;
 
-	while ((c = getopt(argc, argv, "p")) != -1)
+	while ((c = getopt(argc, argv, "pk")) != -1)
 	switch (c) {
 		case 'p':
 			pflag = 1;
+			break;
+		case 'k':
+			kflag = 1;
 			break;
 		case '?':
 			if (isprint (optopt)) {
@@ -51,7 +55,7 @@ int main(const int argc, char **argv) {
 
 	// what follows is translated q calls from shmipc.q
 	K dir = kss(argv[optind]);
-	K parser = kss("text");
+	K parser = kss(kflag ? "kx" : "text");
 	K r;
 	per(shmipc_init(dir, parser));
 	per(shmipc_debug((K)NULL));
@@ -66,7 +70,7 @@ int main(const int argc, char **argv) {
 
 	printf("writing\n");
 	K msg = kfrom_c_str("message from c");
-    per(shmipc_appender(dir,msg));
+    per(shmipc_append(dir,msg));
 	per(shmipc_debug((K)NULL));
 
 	per(shmipc_peek(dir));

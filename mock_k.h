@@ -70,7 +70,7 @@ K knk(int n, ...) { // create a mixed list from K's in varg
 }
 //                mx KB UU ?? KG KH KI KJ KE KF KC KS KP KM KD KZ KN KU KV KT
 //                0  1  2  -  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19
-int sizefor[] = { 8, 1, 16,1, 2, 2, 4, 8, 4, 8, 1, 8 ,8, 4, 4, 8, 8, 4, 4, 4 };
+int sizefor[] = { 8, 1, 16,0, 1, 2, 4, 8, 4, 8, 1, 8 ,8, 4, 4, 8, 8, 4, 4, 4 };
 K ktn(int type, long long n) { // K type number
     int sz = (type > 19) ? 8 : sizefor[abs(type)];
     K r = malloc(sizeof(struct k0) + n*sz);
@@ -80,6 +80,19 @@ K ktn(int type, long long n) { // K type number
     return r;
 }
 
+// dummy serialiser returns a single byte array [SOH]
+K b9(I mode, K obj) {
+    K r = ktn(KB,1);
+    r->G0[0] = 1;
+    return r;
+}
+
+K d9(K obj) {
+    return ki(1);
+}
+
+int okx(K obj) { return 1; }
+// repl equivelent wrapper (protected eval, with and without gc)
 K pe(K x) {
     if (kxx_errno != 0) exit(-1);
     return x;
@@ -90,6 +103,7 @@ void per(K x) {
 }
 
 void r0(K x) { // Decrement the object‘s reference count
+    if (x == 0) { printf("Bug r0 of null pointer %p\n", x); return; }
     if (x->r < 0) printf("Bug double-free of %p\n", x);
     if (x->r == 0) {
         if (x->t == 0) for (int i = 0; i < x->n; i++) r0(kK(x)[i]);
