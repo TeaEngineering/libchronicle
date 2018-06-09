@@ -56,7 +56,7 @@ typedef struct {
 } dirlist_fields_t;
 
 typedef struct tailer {
-    uint64_t          next_index; // the next index we will dispatch
+    uint64_t          dispatch_after; // for resume support
     int               state;
     K                 callback;
     int               mmap_protection; // PROT_READ etc.
@@ -68,6 +68,7 @@ typedef struct tailer {
     int               qf_fd;
 
     uint64_t          qf_tip; // byte position of the next header, or zero if unknown
+    uint64_t          qf_index; // seqnum of the header pointed to by qf_tip
 
     // currently mapped region: buffer, offset (from 0 in file), size
     unsigned char*    qf_buf;
@@ -168,7 +169,7 @@ void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdat
     if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
 
     // prep args and fire callback
-    if (tailer->callback) {
+    if (tailer->callback && index > tailer->dispatch_after) {
         K msg = ktn(KC, lim); // don't free this, handed over to q interp
         memcpy((char*)msg->G0, base, lim);
         K arg = knk(2, kj(index), msg);
@@ -193,7 +194,7 @@ void parse_data_kx(unsigned char* base, int lim, uint64_t index, void* userdata)
     tailer_t* tailer = (tailer_t*)userdata;
 
     // prep args and fire callback
-    if (tailer->callback) {
+    if (tailer->callback && index > tailer->dispatch_after) {
         K msg = ktn(KG, lim);
         memcpy((char*)msg->G0, base, lim);
         int ok = okx(msg);
@@ -204,7 +205,7 @@ void parse_data_kx(unsigned char* base, int lim, uint64_t index, void* userdata)
             r0(arg);
             r0(r);
         } else {
-            printf("shmipc: caution index %" PRIu64 " bytes !ok as kx, skipping\n", index);
+            if (debug) printf("shmipc: caution index %" PRIu64 " bytes !ok as kx, skipping\n", index);
         }
         r0(msg);
     }
@@ -330,6 +331,7 @@ K shmipc_init(K dir, K parser) {
     // TODO check yyyymmdd
     item->cycle2file_fn = &get_cycle_fn_yyyymmdd;
     item->cycle_shift = 32;
+    item->seqnum_mask = 0x00000000FFFFFFFF;
     // TODO: Logic from RollCycles.java ensures rollover occurs before we run out of index2index pages?
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
 
@@ -389,7 +391,7 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
     uint64_t index = *indexp;
 
     while (1) {
-        if (base+4 >= extent) return 6;
+        if (base+4 >= extent) return 3;
         memcpy(&header, base, sizeof(header)); // relax, fn optimised away
         // no speculative fetches before the header is read
         asm volatile ("mfence" ::: "memory");
@@ -507,12 +509,9 @@ K shmipc_peek(K x) {
     return (K)0;
 }
 
-void shmipc_peek_queue(queue_t *queue) {
-    uint64_t modcount;
-    if (debug) printf("peeking at %s\n", queue->hsymbolp);
-
+void shmipc_peek_queue_modcount(queue_t* queue) {
     // poll shared directory for modcount
-    // TODO: check header unlocked?
+    uint64_t modcount;
     memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
 
     if (queue->modcount != modcount) {
@@ -522,6 +521,11 @@ void shmipc_peek_queue(queue_t *queue) {
         memcpy(&queue->lowest_cycle, queue->dirlist_fields.lowest_cycle, sizeof(modcount));
         memcpy(&queue->highest_cycle, queue->dirlist_fields.highest_cycle, sizeof(modcount));
     }
+}
+
+void shmipc_peek_queue(queue_t *queue) {
+    if (debug) printf("peeking at %s\n", queue->hsymbolp);
+    shmipc_peek_queue_modcount(queue);
 
     tailer_t *tailer = queue->tailers;
     while (tailer != NULL) {
@@ -549,7 +553,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
 
     while (1) {
 
-        uint64_t cycle = tailer->next_index >> queue->cycle_shift;
+        uint64_t cycle = tailer->qf_index >> queue->cycle_shift;
         if (cycle != tailer->qf_cycle_open || tailer->qf_fn == NULL) {
             // free fn, mmap and fid
             if (tailer->qf_fn) {
@@ -573,9 +577,9 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
 
                 // if our cycle < highCycle, permitted to skip a missing file rather than wait
                 if (cycle < queue->highest_cycle) {
-                    uint64_t skip_to_cycle = (cycle + 1) << queue->cycle_shift;
-                    printf("shmipc:  skipping queuefile (cycle < highest_cycle), bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, skip_to_cycle);
-                    tailer->next_index = skip_to_cycle;
+                    uint64_t skip_to_index = (cycle + 1) << queue->cycle_shift;
+                    printf("shmipc:  skipping queuefile (cycle < highest_cycle), bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, skip_to_index);
+                    tailer->qf_index = skip_to_index;
                     continue;
                 }
                 return 2;
@@ -631,7 +635,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         unsigned char* basep = (tailer->qf_tip - tailer->qf_mmapoff) + tailer->qf_buf; // basep within mmap
         unsigned char* basep_old = basep;
         unsigned char* extent = tailer->qf_buf+tailer->qf_mmapsz;
-        uint64_t index = tailer->next_index;
+        uint64_t index = tailer->qf_index;
 
         //    0  awaiting at &base  (pass)
         //    1  we hit working     (pass)
@@ -647,19 +651,20 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         }
 
         if (basep != basep_old) {
+            // commit result of parsing to the tailer, adjusting for the window
             uint64_t new_tip = basep-tailer->qf_buf + tailer->qf_mmapoff;
-            if (debug) printf("shmipc:  parser moved shm %p to %p, file %llu -> %llu\n", basep_old, basep, tailer->qf_tip, new_tip);
+            if (debug) printf("shmipc:  parser moved shm %p to %p, file %llu -> %llu, index %" PRIu64 " to %" PRIu64 "\n", basep_old, basep, tailer->qf_tip, new_tip, tailer->qf_index, index);
             tailer->qf_tip = new_tip;
-            tailer->next_index = index;
+            tailer->qf_index = index;
         }
 
         if (s == 0 || s == 1) return s;
 
         if (s == 2) {
             // we've read an EOF marker, so the next expected index is cycle++, seqnum=0
-            uint64_t eof_cycle = ((tailer->next_index >> queue->cycle_shift) + 1) << queue->cycle_shift;
-            printf("shmipc:  hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->next_index, eof_cycle);
-            tailer->next_index = eof_cycle;
+            uint64_t eof_cycle = ((tailer->qf_index >> queue->cycle_shift) + 1) << queue->cycle_shift;
+            printf("shmipc:  hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, eof_cycle);
+            tailer->qf_index = eof_cycle;
         }
     }
     return 0;
@@ -709,14 +714,17 @@ K shmipc_debug(K x) {
 void shmipc_debug_tailer(queue_t* queue, tailer_t* tailer) {
     const char* state_text = tailer_state_messages[tailer->state];
     printf("    callback         %p\n",   tailer->callback);
-    int cycle = tailer->next_index >> queue->cycle_shift;
-    int seqnum = tailer->next_index & queue->seqnum_mask;
-    printf("    next_index       %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->next_index, cycle, seqnum);
+    int cycle = tailer->dispatch_after >> queue->cycle_shift;
+    int seqnum = tailer->dispatch_after & queue->seqnum_mask;
+    printf("    dispatch_after   %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->dispatch_after, cycle, seqnum);
     printf("    state            %d - %s\n", tailer->state, state_text);
     printf("    qf_fn            %s\n",   tailer->qf_fn);
     printf("    qf_fd            %d\n",   tailer->qf_fd);
     printf("    qf_statbuf_sz    %" PRIu64 "\n", (uint64_t)tailer->qf_statbuf.st_size);
     printf("    qf_tip           %" PRIu64 "\n", tailer->qf_tip);
+    cycle = tailer->qf_index >> queue->cycle_shift;
+    seqnum = tailer->qf_index & queue->seqnum_mask;
+    printf("    qf_index         %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->qf_index, cycle, seqnum);
     printf("    qf_buf           %p\n",   tailer->qf_buf);
     printf("      extent         %p\n",   tailer->qf_buf+tailer->qf_mmapsz);
     printf("    qf_mmapsz        %" PRIx64 "\n", tailer->qf_mmapsz);
@@ -762,18 +770,22 @@ K shmipc_append(K dir, K msg) {
     msg = queue->encodecheck(queue, msg); // abort write if r==0
     if (msg == NULL) return msg;
 
+    // build a special tailer with the protection bits and file descriptor set to allow
+    // writing.
     if (queue->appender == NULL) {
         tailer_t* tailer = malloc(sizeof(tailer_t));
         if (tailer == NULL) return krr("am fail");
         bzero(tailer, sizeof(tailer_t));
 
-        tailer->next_index = queue->highest_cycle << queue->cycle_shift;
+        tailer->qf_index = queue->highest_cycle << queue->cycle_shift;
         tailer->callback = NULL;
         tailer->state = 5;
         tailer->mmap_protection = PROT_READ | PROT_WRITE;
 
         queue->appender = tailer;
     }
+
+    shmipc_peek_queue_modcount(queue);
 
     // poll the appender
     tailer_t* appender = queue->appender;
@@ -783,20 +795,29 @@ K shmipc_append(K dir, K msg) {
         r = shmipc_peek_tailer(queue, appender);
         // printf(" appender peek %d\n", r);
 
-        // if we write to qf_buf and the state is not zero we'll hit sigbus etc
+        // If the tailer returns 0, we are all set pointing to the next unwritten entry.
+        // if we write to qf_buf and the state is not zero we'll hit sigbus etc, so sleep
+        // and wait for availability.
         if (r != 0) {
-            printf("Cannot write in state %d, sleeping\n", r);
+            printf("shmipc: Cannot write in state %d, sleeping\n", r);
             sleep(1);
             continue;
         }
 
-        // if the file is EOF or busy, we have to wait and try again,
-        // otherwise appender->buf is pointing at the queue head, so we can
-        // LOCK CMPXCHG the working bit. if we fail, loop and try again
-        // cmpxchg returns the original value in memory
+        // Since appender->buf is pointing at the queue head, so we can
+        // LOCK CMPXCHG the working bit directly. If the cas failed, another writer
+        // has beaten us to it, we sleep and try again
+        // If the file is EOF, we re-visit the tailer logic which will adjust
+        // the maps and switch to the new file.
+
+        // Note that we do not extended qf_buf or qf_index after the write. Let the
+        // tailer log handle the entry we've just written in the normal way, since that will
+        // adjust the buffer window/mmap for us.
         unsigned char* ptr = (appender->qf_tip - appender->qf_mmapoff) + appender->qf_buf;
         uint32_t ret = ccas32(ptr, HD_UNALLOCATED, HD_WORKING);
 
+        // cmpxchg returns the original value in memory, so we can tell if we succeeded
+        // by looking for HD_UNALLOCATED. If we read a working bit or finished size, we lost.
         if (ret == HD_UNALLOCATED) {
             asm volatile ("mfence" ::: "memory");
 
@@ -809,6 +830,7 @@ K shmipc_append(K dir, K msg) {
 
             break;
         }
+
         printf("Lock failed, peeking again\n");
         sleep(1);
     }
@@ -848,13 +870,14 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     if (tailer == NULL) return krr("tm fail");
     bzero(tailer, sizeof(tailer_t));
 
-    tailer->next_index = index;
+    tailer->dispatch_after = index;
+    tailer->qf_index = index & ~queue->seqnum_mask; // start replay from first entry in file
     tailer->callback = cb;
     tailer->state = 5;
     tailer->mmap_protection = PROT_READ;
 
-    tailer->next = item->tailers;
-    item->tailers = tailer;
+    tailer->next = queue->tailers;
+    queue->tailers = tailer;
 
     return (K)NULL;
 }
