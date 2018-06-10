@@ -613,7 +613,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         }
 
         int limit = tailer->qf_statbuf.st_size - mmapoff > 2*queue->blocksize ? 2*queue->blocksize : tailer->qf_statbuf.st_size - mmapoff;
-        if (debug) printf("shmipc:  tip %llu -> mmapoff %llx size 0x%x  blocksize_mask 0x%llx\n", tailer->qf_tip, mmapoff, limit, blocksize_mask);
+        if (debug) printf("shmipc:  tip %" PRIu64 " -> mmapoff %" PRIu64 " size 0x%x  blocksize_mask 0x%" PRIx64 "\n", tailer->qf_tip, mmapoff, limit, blocksize_mask);
 
         // only re-mmap if desired window has changed since last scan
         if (tailer->qf_buf == NULL || mmapoff != tailer->qf_mmapoff || limit != tailer->qf_mmapsz) {
@@ -629,7 +629,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
                 tailer->qf_buf = NULL;
                 return 4;
             }
-            printf("shmipc:  mmap offset %llx size %llx base=%p extent=%p\n", tailer->qf_mmapoff, tailer->qf_mmapsz, tailer->qf_buf, tailer->qf_buf+tailer->qf_mmapsz);
+            printf("shmipc:  mmap offset %" PRIx64 " size %" PRIx64 " base=%p extent=%p\n", tailer->qf_mmapoff, tailer->qf_mmapsz, tailer->qf_buf, tailer->qf_buf+tailer->qf_mmapsz);
         }
 
         unsigned char* basep = (tailer->qf_tip - tailer->qf_mmapoff) + tailer->qf_buf; // basep within mmap
@@ -653,7 +653,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         if (basep != basep_old) {
             // commit result of parsing to the tailer, adjusting for the window
             uint64_t new_tip = basep-tailer->qf_buf + tailer->qf_mmapoff;
-            if (debug) printf("shmipc:  parser moved shm %p to %p, file %llu -> %llu, index %" PRIu64 " to %" PRIu64 "\n", basep_old, basep, tailer->qf_tip, new_tip, tailer->qf_index, index);
+            if (debug) printf("shmipc:  parser moved shm %p to %p, file %" PRIu64 " -> %" PRIu64 ", index %" PRIu64 " to %" PRIu64 "\n", basep_old, basep, tailer->qf_tip, new_tip, tailer->qf_index, index);
             tailer->qf_tip = new_tip;
             tailer->qf_index = index;
         }
