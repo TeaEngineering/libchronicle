@@ -129,7 +129,7 @@ uint32_t pid_header = 0;
 queue_t *queue_head = NULL;
 
 // forward declarations
-void parse_dirlist(queue_t *item);
+void parse_dirlist(queue_t*);
 void parse_queuefile_meta(unsigned char*, int, queue_t*);
 void parse_queuefile_data(unsigned char*, int, queue_t*, tailer_t*, uint64_t);
 int shmipc_peek_tailer(queue_t*, tailer_t*);
@@ -145,7 +145,7 @@ static inline uint32_t ccas32(unsigned char *mem, uint32_t newval, uint32_t oldv
     return (uint32_t) ret;
 }
 
-char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
+char* get_cycle_fn_yyyymmdd(queue_t* queue, int cycle) {
     char* buf;
     // time_t aka long. seconds since midnight 1970
     time_t rawtime = cycle * 60*60*24;
@@ -153,7 +153,7 @@ char* get_cycle_fn_yyyymmdd(queue_t *item, int cycle) {
     gmtime_r(&rawtime, &info);
 
     // tail of this buffer is overwritten by the strftime below
-    int bufsz = asprintf(&buf, "%s/yyyymmdd.cq4", item->dirname);
+    int bufsz = asprintf(&buf, "%s/yyyymmdd.cq4", queue->dirname);
     strftime(buf+bufsz-12, 13, "%Y%m%d.cq4", &info);
     return buf;
 }
@@ -236,32 +236,32 @@ K shmipc_init(K dir, K parser) {
     printf("shmipc: opening dir %p %p %s\n", dir, dir->s, dir->s);
 
     // check if queue already open
-    queue_t *item = queue_head;
-    while (item != NULL) {
-        if (item->hsymbolp == dir->s) return krr("shmipc dir dupe init");
-        item = item->next;
+    queue_t* queue = queue_head;
+    while (queue != NULL) {
+        if (queue->hsymbolp == dir->s) return krr("shmipc dir dupe init");
+        queue = queue->next;
     }
 
     // allocate struct, we'll link if all checks pass
-    item = malloc(sizeof(queue_t));
-    if (item == NULL) return krr("m fail");
-    bzero(item, sizeof(queue_t));
+    queue = malloc(sizeof(queue_t));
+    if (queue == NULL) return krr("m fail");
+    bzero(queue, sizeof(queue_t));
 
     // dir is on the stack, but dir->s points to the heap interned table. safe to use ref to q
-    item->dirname = &dir->s[1];
-    item->blocksize = 1024*1024; // must be a power of two (single 1 bit)
+    queue->dirname = &dir->s[1];
+    queue->blocksize = 1024*1024; // must be a power of two (single 1 bit)
 
     // Is this a directory
     struct stat statbuf;
-    if (stat(item->dirname, &statbuf) != 0) return krr("stat fail");
+    if (stat(queue->dirname, &statbuf) != 0) return krr("stat fail");
     if (!S_ISDIR(statbuf.st_mode)) return krr("dir is not a directory");
 
     // Does it contain some .cq4 files?
-    glob_t *g = &item->queuefile_glob;
+    glob_t *g = &queue->queuefile_glob;
     g->gl_offs = 0;
 
-    asprintf(&item->queuefile_pattern, "%s/*.cq4", item->dirname);
-    glob(item->queuefile_pattern, GLOB_ERR, NULL, g);
+    asprintf(&queue->queuefile_pattern, "%s/*.cq4", queue->dirname);
+    glob(queue->queuefile_pattern, GLOB_ERR, NULL, g);
     printf("shmipc: glob %zu queue files found\n", g->gl_pathc);
     if (g->gl_pathc < 1) {
         return krr("no queue files - java run?");
@@ -271,23 +271,23 @@ K shmipc_init(K dir, K parser) {
     }
 
     // Can we map the directory-listing.cq4t file
-    asprintf(&item->dirlist_name, "%s/directory-listing.cq4t", item->dirname);
-    if ((item->dirlist_fd = open(item->dirlist_name, O_RDONLY)) < 0) {
+    asprintf(&queue->dirlist_name, "%s/directory-listing.cq4t", queue->dirname);
+    if ((queue->dirlist_fd = open(queue->dirlist_name, O_RDONLY)) < 0) {
         return orr("dirlist open");
     }
 
     // find size of dirlist and mmap
-    if (fstat(item->dirlist_fd, &item->dirlist_statbuf) < 0)
+    if (fstat(queue->dirlist_fd, &queue->dirlist_statbuf) < 0)
         return krr("dirlist fstat");
-    if ((item->dirlist = mmap(0, item->dirlist_statbuf.st_size, PROT_READ, MAP_SHARED, item->dirlist_fd, 0)) == MAP_FAILED)
+    if ((queue->dirlist = mmap(0, queue->dirlist_statbuf.st_size, PROT_READ, MAP_SHARED, queue->dirlist_fd, 0)) == MAP_FAILED)
         return krr("dirlist mmap fail");
 
     printf("shmipc: parsing dirlist\n");
-    parse_dirlist(item);
+    parse_dirlist(queue);
 
     // check the polled fields in header section were all resolved to pointers within the map
-    if (item->dirlist_fields.highest_cycle == NULL || item->dirlist_fields.lowest_cycle == NULL ||
-        item->dirlist_fields.modcount == NULL) {
+    if (queue->dirlist_fields.highest_cycle == NULL || queue->dirlist_fields.lowest_cycle == NULL ||
+        queue->dirlist_fields.modcount == NULL) {
         return krr("dirlist parse hdr ptr fail");
     }
 
@@ -300,7 +300,7 @@ K shmipc_init(K dir, K parser) {
     uint64_t          queuefile_extent;
     unsigned char*    queuefile_buf;
 
-    char* fn = item->queuefile_glob.gl_pathv[0];
+    char* fn = queue->queuefile_glob.gl_pathv[0];
     // find size of dirlist and mmap
     if ((queuefile_fd = open(fn, O_RDONLY)) < 0) {
         return orr("qfi open");
@@ -309,68 +309,68 @@ K shmipc_init(K dir, K parser) {
         return krr("qfi fstat");
 
     // we onlt need the first block
-    queuefile_extent = queuefile_statbuf.st_size < item->blocksize ? queuefile_statbuf.st_size : item->blocksize;
+    queuefile_extent = queuefile_statbuf.st_size < queue->blocksize ? queuefile_statbuf.st_size : queue->blocksize;
 
     if ((queuefile_buf = mmap(0, queuefile_extent, PROT_READ, MAP_SHARED, queuefile_fd, 0)) == MAP_FAILED)
         return krr("qfi mmap fail");
 
     // we don't need a data-parser at this stage as we only need values from the header
     printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
-    parse_queuefile_meta(queuefile_buf, queuefile_extent, item);
+    parse_queuefile_meta(queuefile_buf, queuefile_extent, queue);
 
     // close queuefile
     munmap(queuefile_buf, queuefile_extent);
     close(queuefile_fd);
 
     // check we loaded some rollover settings from queuefile
-    if (item->roll_length == 0) krr("qfi roll_length fail");
-    if (item->index_count == 0) krr("qfi index_count fail");
-    if (item->index_spacing == 0) krr("qfi index_spacing fail");
-    if (item->roll_format == 0) krr("qfi roll_format fail");
+    if (queue->roll_length == 0) krr("qfi roll_length fail");
+    if (queue->index_count == 0) krr("qfi index_count fail");
+    if (queue->index_spacing == 0) krr("qfi index_spacing fail");
+    if (queue->roll_format == 0) krr("qfi roll_format fail");
 
     // TODO check yyyymmdd
-    item->cycle2file_fn = &get_cycle_fn_yyyymmdd;
-    item->cycle_shift = 32;
-    item->seqnum_mask = 0x00000000FFFFFFFF;
+    queue->cycle2file_fn = &get_cycle_fn_yyyymmdd;
+    queue->cycle_shift = 32;
+    queue->seqnum_mask = 0x00000000FFFFFFFF;
     // TODO: Logic from RollCycles.java ensures rollover occurs before we run out of index2index pages?
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
 
     // verify user-specified parser for data segments
     if (strncmp(parser->s, "text", parser->n) == 0) {
-        item->parser = &parse_data_text;
-        item->encoder = &append_data_text;
-        item->encodecheck = &append_check_text;
+        queue->parser = &parse_data_text;
+        queue->encoder = &append_data_text;
+        queue->encodecheck = &append_check_text;
     } else if (strncmp(parser->s, "kx", parser->n) == 0) {
-        item->parser = &parse_data_kx;
-        item->encoder = &append_data_kx;
-        item->encodecheck = &append_check_kx;
+        queue->parser = &parse_data_kx;
+        queue->encoder = &append_data_kx;
+        queue->encodecheck = &append_check_kx;
     } else {
         return krr("bad format: supports `kx and `text");
     }
     printf("shmipc: format set to %.*s\n", (int)parser->n, parser->s);
 
     // Good to use
-    item->next = queue_head;
-    item->hsymbolp = dir->s;
-    queue_head = item;
+    queue->next = queue_head;
+    queue->hsymbolp = dir->s;
+    queue_head = queue;
 
     printf("shmipc: init complete\n");
 
     // avoids a tailer registration before we have a minimum cycle
-    shmipc_peek_queue(item);
+    shmipc_peek_queue(queue);
 
     return (K)NULL;
 
     // wip: kernel style unwinder
 //unwind_1:
-    free(item->dirlist_name);
-    free(item->queuefile_pattern);
-    close(item->dirlist_fd);
-    globfree(&item->queuefile_glob);
+    free(queue->dirlist_name);
+    free(queue->queuefile_pattern);
+    close(queue->dirlist_fd);
+    globfree(&queue->queuefile_glob);
     // unlink LL if entered
-    munmap(item->dirlist, item->dirlist_statbuf.st_size);
+    munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
 //unwind_2:
-    free(item);
+    free(queue);
 
     return (K)NULL;
 
@@ -433,61 +433,61 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
 
 void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t* cbs) {
     // we are preserving *pointers* within the shared directory data page
-    queue_t *item = (queue_t*)cbs->userdata;
+    queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "listing.highestCycle", sz) == 0) {
-        item->dirlist_fields.highest_cycle = dptr;
+        queue->dirlist_fields.highest_cycle = dptr;
     } else if (strncmp(buf, "listing.lowestCycle", sz) == 0) {
-        item->dirlist_fields.lowest_cycle = dptr;
+        queue->dirlist_fields.lowest_cycle = dptr;
     } else if (strncmp(buf, "listing.modCount", sz) == 0) {
-        item->dirlist_fields.modcount = dptr;
+        queue->dirlist_fields.modcount = dptr;
     }
 }
 
 void handle_qf_uint32(char* buf, int sz, uint32_t data, wirecallbacks_t* cbs){
-    queue_t *item = (queue_t*)cbs->userdata;
+    queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
-        item->roll_length = data;
+        queue->roll_length = data;
     }
 }
 
 void handle_qf_uint16(char* buf, int sz, uint16_t data, wirecallbacks_t* cbs) {
-    queue_t *item = (queue_t*)cbs->userdata;
+    queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "indexCount", sz) == 0) {
-        item->index_count = data;
+        queue->index_count = data;
     }
 }
 
 void handle_qf_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
-    queue_t *item = (queue_t*)cbs->userdata;
+    queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "indexSpacing", sz) == 0) {
-        item->index_spacing = data;
+        queue->index_spacing = data;
     }
 }
 
 void handle_qf_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t* cbs) {
-    queue_t *item = (queue_t*)cbs->userdata;
+    queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "format", sz) == 0) {
-        item->roll_format = strndup(data, dsz);
+        queue->roll_format = strndup(data, dsz);
     }
 }
 
-void parse_dirlist(queue_t *item) {
+void parse_dirlist(queue_t* queue) {
     // dirlist mmap is the size of the fstat
-    int lim = item->dirlist_statbuf.st_size;
-    unsigned char* base = item->dirlist;
+    int lim = queue->dirlist_statbuf.st_size;
+    unsigned char* base = queue->dirlist;
     uint64_t index = 0;
 
     wirecallbacks_t cbs;
     bzero(&cbs, sizeof(cbs));
     cbs.ptr_uint64 = &handle_dirlist_ptr;
-    cbs.userdata = item;
+    cbs.userdata = queue;
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
     parse_queue_block(&base, &index, base+lim, &hcbs, &parse_wire2, &cbs);
 }
 
-void parse_queuefile_meta(unsigned char* base, int limit, queue_t *item) {
+void parse_queuefile_meta(unsigned char* base, int limit, queue_t* queue) {
     uint64_t index = 0;
 
     wirecallbacks_t hcbs;
@@ -496,7 +496,7 @@ void parse_queuefile_meta(unsigned char* base, int limit, queue_t *item) {
     hcbs.field_uint16 = &handle_qf_uint16;
     hcbs.field_uint8 =  &handle_qf_uint8;
     hcbs.field_char = &handle_qf_text;
-    hcbs.userdata = item;
+    hcbs.userdata = queue;
     parse_queue_block(&base, &index, base+limit, &hcbs, NULL, NULL);
 }
 
@@ -778,7 +778,7 @@ K shmipc_append(K dir, K msg) {
         bzero(tailer, sizeof(tailer_t));
 
         // compat: writers do an extended lookback to patch missing EOFs
-        tailer->qf_index = queue->highest_cycle - 5 << queue->cycle_shift;
+        tailer->qf_index = (queue->highest_cycle - 3) << queue->cycle_shift;
         tailer->callback = NULL;
         tailer->state = 5;
         tailer->mmap_protection = PROT_READ | PROT_WRITE;
