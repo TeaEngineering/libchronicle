@@ -264,7 +264,7 @@ K shmipc_init(K dir, K parser) {
 
     pid_header = (getpid() & HD_MASK_LENGTH) | HD_WORKING;
 
-    printf("shmipc: opening dir %p %p %s\n", dir, dir->s, dir->s);
+    printf("shmipc: opening dir %s format %s\n", dir->s, parser->s);
 
     // check if queue already open
     queue_t* queue = queue_head;
@@ -293,12 +293,14 @@ K shmipc_init(K dir, K parser) {
 
     asprintf(&queue->queuefile_pattern, "%s/*.cq4", queue->dirname);
     glob(queue->queuefile_pattern, GLOB_ERR, NULL, g);
-    printf("shmipc: glob %zu queue files found\n", g->gl_pathc);
     if (g->gl_pathc < 1) {
         return krr("no queue files - java run?");
     }
-    for (int i = 0; i < g->gl_pathc;i++) {
-        printf("   %s\n", g->gl_pathv[i]);
+    if (debug) {
+        printf("shmipc: glob %zu queue files found\n", g->gl_pathc);
+        for (int i = 0; i < g->gl_pathc;i++) {
+            printf("   %s\n", g->gl_pathv[i]);
+        }
     }
 
     // Can we map the directory-listing.cq4t file
@@ -313,7 +315,7 @@ K shmipc_init(K dir, K parser) {
     if ((queue->dirlist = mmap(0, queue->dirlist_statbuf.st_size, PROT_READ, MAP_SHARED, queue->dirlist_fd, 0)) == MAP_FAILED)
         return krr("dirlist mmap fail");
 
-    printf("shmipc: parsing dirlist\n");
+    if (debug) printf("shmipc: parsing dirlist\n");
     parse_dirlist(queue);
 
     // check the polled fields in header section were all resolved to pointers within the map
@@ -345,7 +347,7 @@ K shmipc_init(K dir, K parser) {
         return krr("qfi mmap fail");
 
     // we don't need a data-parser at this stage as we only need values from the header
-    printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
+    if (debug) printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
     parse_queuefile_meta(queuefile_buf, queuefile_extent, queue);
 
     // close queuefile
@@ -377,17 +379,16 @@ K shmipc_init(K dir, K parser) {
     } else {
         return krr("bad format: supports `kx and `text");
     }
-    printf("shmipc: format set to %.*s\n", (int)parser->n, parser->s);
+    if (debug) printf("shmipc: format set to %.*s\n", (int)parser->n, parser->s);
 
     // Good to use
     queue->next = queue_head;
     queue->hsymbolp = dir->s;
     queue_head = queue;
 
-    printf("shmipc: init complete\n");
-
     // avoids a tailer registration before we have a minimum cycle
     shmipc_peek_queue(queue);
+    if (debug) printf("shmipc: init complete\n");
 
     return (K)NULL;
 
