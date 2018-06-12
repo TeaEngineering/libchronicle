@@ -126,6 +126,7 @@ typedef struct queue {
 // globals
 char* debug = NULL;
 uint32_t pid_header = 0;
+uint32_t patch_cycles = 3;
 queue_t *queue_head = NULL;
 
 // forward declarations
@@ -658,7 +659,17 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
             tailer->qf_index = index;
         }
 
-        if (s == 0 || s == 1) return s;
+        if (s == 1) return s;
+
+        if (s == 0) { // awaiting at end of queuefile
+            if (cycle < queue->highest_cycle-patch_cycles) { // allowed to fast-forward
+                uint64_t skip_to_index = (cycle + 1) << queue->cycle_shift;
+                printf("shmipc:  missing EOF for queuefile (cycle < highest_cycle-patch_cycles), bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, skip_to_index);
+                tailer->qf_index = skip_to_index;
+                continue;
+            }
+            return s;
+        }
 
         if (s == 2) {
             // we've read an EOF marker, so the next expected index is cycle++, seqnum=0
@@ -778,7 +789,7 @@ K shmipc_append(K dir, K msg) {
         bzero(tailer, sizeof(tailer_t));
 
         // compat: writers do an extended lookback to patch missing EOFs
-        tailer->qf_index = (queue->highest_cycle - 3) << queue->cycle_shift;
+        tailer->qf_index = (queue->highest_cycle - patch_cycles) << queue->cycle_shift;
         tailer->callback = NULL;
         tailer->state = 5;
         tailer->mmap_protection = PROT_READ | PROT_WRITE;
