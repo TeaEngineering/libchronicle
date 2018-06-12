@@ -1,7 +1,3 @@
-/ shared memory IPC based on Chronocle Queue
-/ set the KDB Timer resolution to 1ms then register the dispatch callback .shmipc.peek[] in .z.t
-
-/ see also hpet.c/hpet.q for the high performance event timer
 
 .shmipc.init:`:native/obj/shmipc 2:(`shmipc_init;2)
 .shmipc.close:`:native/obj/shmipc 2:(`shmipc_close;1)
@@ -18,12 +14,12 @@
 / decoder type can be `text`bytes`kdb
 n:(0 1000)[system["hostname"][0] like "*Chris*"]
 do[n;.shmipc.init[`:java/queue;`text];.shmipc.debug[0];.shmipc.peek[0];.shmipc.debug[0];.shmipc.close[`:java/queue];];
-.shmipc.debug[0];
+.shmipc.debug[];
 
 // fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.500000000];
 .shmipc.init[`:java/queue;`text];
-.shmipc.peek[0];
-.shmipc.debug[0];
+.shmipc.peek[];
+.shmipc.debug[];
 
 / add a tailer by using .shmipc.tailer[`:queue;cb;cycle;decoder] where cycle may be 0 to replay
 / from the beginning of time, and cb is the callback for each event in the queue. A replay
@@ -31,7 +27,7 @@ do[n;.shmipc.init[`:java/queue;`text];.shmipc.debug[0];.shmipc.peek[0];.shmipc.d
 cb:{0N!(x;y)}
 .shmipc.tailer[`:java/queue;cb;0];
 
-.shmipc.debug[0];
+.shmipc.debug[];
 
 / Note the standard Java wire implementations are largely ignored and returned as byte arrays
 / for debug tracing $ export SHMIPC_DEBUG=1 && ./q.sh native/shmipc.q

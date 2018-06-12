@@ -18,5 +18,5 @@ show " " sv ("recovered position is";string .pos)
 // handler for new input pushes corresponding index to output
 cb:{ 0N!(x;y);.shmipc.append[`:java/queueout;x]; }
 
-fd:.timer.hpet_open[{.shmipc.peek[0]}; 0D00:00:00.010000000];
+fd:.timer.hpet_open[{.shmipc.peek[]}; 0D00:00:00.010000000];
 .shmipc.tailer[`:java/queue;cb;.pos]
