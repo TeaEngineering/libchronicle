@@ -257,7 +257,7 @@ K append_check_kx(queue_t* queue, K msg) {
 K shmipc_init(K dir, K parser) {
     if (dir->t != -KS) return krr("dir is not symbol");
     if (dir->s[0] != ':') return krr("dir is not symbol handle (starts with :)");
-    if (dir->t != -KS) return krr("parser is not symbol");
+    if (parser->t != -KS) return krr("parser is not symbol");
 
     debug = getenv("SHMIPC_DEBUG");
     wire_trace = getenv("SHMIPC_WIRETRACE");
