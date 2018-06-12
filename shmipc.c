@@ -20,17 +20,47 @@
 #include "wire.h"
 
 /**
- * Note
+ * Implementation notes - see main docs in native/demo/shm.q
  * This code is not reentrant, but there is only one kx main thread, so this is not a problem.
- * Should not be used by the slave threads without external locking.
- * However multiple processes can write and read from a queue concurrently, and one process
+ * Should not be used by q slave threads without external locking.
+ * Multiple processes can append and tail from a queue concurrently, and one process
  * may read or write from multiple queues.
  *
- * The current iteration requires a Java Chronicle-Queues node to be writing to the same queue
- * on a periodic timer to roll over the log files and maintain the index structures.
+ * TODO: current iteration requires a Java Chronicle-Queues appender to be writing to the same
+ * queue on a periodic timer to roll over the log files correctly and maintain the index structures.
  *
- * It should be possible to append to a queue from a tailer on same queue, so the fds and mmaps
- * used for writing are separate to those used in recovery.
+ * It should be possible to append to a queue from a tailer callback on same queue, so the fds
+ * and mmaps used for writing are separate to those used in recovery.
+ *
+ * Most of the appender logic is actually just the tailer logic, followed by cas write-lock.
+ * For interesting concurrency parts search 'lock_cmpxchgl' and 'mfence'.
+ *
+ * To gurantee we can read and write payloads of 'blocksize' length we map
+ * 2x blocksize each time, aligning the map offset to be a multiple of blocksize from
+ * the start of the file. If the block parser (parse_queue_block) is about to step
+ * over the buffer end, it returns asking for advance. There are two outcomes: either
+ * we are positioned in 2nd block ('overhang'), and our mmap() will advance one block
+ * completing the parse, or having tried that the parser will stop again without moving
+ * in which case we double the blocksize.
+ *
+ * The interesting caller of parse_queue_block is shmipc_peek_tailer_r, which handles
+ * splitting the index into cycle and seqnum, determinging the filenames, opening fids,
+ * repositioning the buffer and interpreting the return codes from the block parser. It
+ * consists of a while (1) loop, repeating until one of the enumerated states
+ * prevents it from doing any further work. Reasons are in tailer_state_messages and shown
+ * in the debug output. shmipc_peek_tailer_r re-uses existing generated filenames, fids
+ * and maps from previous invocations as much as possible.
+ *
+ * patch_cycles is a variable that controls compatability with Java and is only relevant
+ * when opening an old queue that may not have been written to recently. When an appender is
+ * started, it starts seeking for the write position from (highetCycle-patch_cycles),
+ * which causes a replay to occur internally and ensures that any previous cycles
+ * covered by the replay are patched up to end with an EOF marker. For symnetry, if a
+ * reader finds itself stuck at an available marker in a queuefile for a
+ * cycle < (highestCycle-patch_cycles), it is permitted to skip over the missing EOF.
+ * Java acheives something similar using less-elegant timeouts.
+ *
+ *
  */
 
 // MetaDataKeys `header`index2index`index`roll
@@ -295,7 +325,6 @@ K shmipc_init(K dir, K parser) {
     // read a 'queue' header from any one of the datafiles to get the
     // rollover configuration. We don't know how to generate a filename from a cycle code
     // yet, so this needs to use the directory listing.
-    // TODO: don't map whole, map blocksize
     int               queuefile_fd;
     struct stat       queuefile_statbuf;
     uint64_t          queuefile_extent;
@@ -608,6 +637,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         uint64_t mmapoff = tailer->qf_tip & blocksize_mask;
 
         // renew stat if we would otherwise map less than 2* blocksize
+        // TODO: write needs to extend file here!
         if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize) {
             if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
                 return 3;
