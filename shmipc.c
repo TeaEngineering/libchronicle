@@ -889,7 +889,7 @@ K shmipc_append(K dir, K msg) {
         sleep(1);
     }
 
-    return 0;
+    return kj(appender->qf_index);
 }
 
 K shmipc_tailer(K dir, K cb, K kindex) {
