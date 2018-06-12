@@ -1,4 +1,4 @@
-\l native/demo/shm.q
+\l native/shm.q
 
 .shmipc.init[`:java/queue;`text];
 
