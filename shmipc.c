@@ -137,7 +137,7 @@ void shmipc_peek_queue(queue_t*);
 void shmipc_debug_tailer(queue_t*, tailer_t*);
 
 // compare and swap, 32 bits, addressed by a 64bit pointer
-static inline uint32_t ccas32(unsigned char *mem, uint32_t newval, uint32_t oldval) {
+static inline uint32_t lock_cmpxchgl(unsigned char *mem, uint32_t newval, uint32_t oldval) {
     __typeof (*mem) ret;
     __asm __volatile ("lock; cmpxchgl %2, %1"
     : "=a" (ret), "=m" (*mem)
@@ -807,15 +807,15 @@ K shmipc_append(K dir, K msg) {
 
         // Since appender->buf is pointing at the queue head, so we can
         // LOCK CMPXCHG the working bit directly. If the cas failed, another writer
-        // has beaten us to it, we sleep and try again
-        // If the file is EOF, we re-visit the tailer logic which will adjust
+        // has beaten us to it, we sleep poll the tailer and try again
+        // If the file has gone EOF, we re-visit the tailer logic which will adjust
         // the maps and switch to the new file.
 
         // Note that we do not extended qf_buf or qf_index after the write. Let the
         // tailer log handle the entry we've just written in the normal way, since that will
         // adjust the buffer window/mmap for us.
         unsigned char* ptr = (appender->qf_tip - appender->qf_mmapoff) + appender->qf_buf;
-        uint32_t ret = ccas32(ptr, HD_UNALLOCATED, HD_WORKING);
+        uint32_t ret = lock_cmpxchgl(ptr, HD_UNALLOCATED, HD_WORKING);
 
         // cmpxchg returns the original value in memory, so we can tell if we succeeded
         // by looking for HD_UNALLOCATED. If we read a working bit or finished size, we lost.
@@ -844,7 +844,7 @@ K shmipc_append(K dir, K msg) {
             break;
         }
 
-        printf("Lock failed, peeking again\n");
+        printf("shmipc: write lock failed, peeking again\n");
         sleep(1);
     }
 
