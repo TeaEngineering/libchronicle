@@ -195,6 +195,18 @@ void queue_double_blocksize(queue_t* queue) {
     queue->blocksize = new_blocksize;
 }
 
+void dispatch_callback(tailer_t* tailer, uint64_t index, K obj) {
+    K arg = knk(2, kj(index), obj);
+    K r = dot(tailer->callback, arg);
+    r0(arg);
+    if (r == NULL) {
+        printf(" shmipc: caution, error signalled by callback (returned NULL)\n");
+    } else if (r && r->t == KERR) {
+        printf(" shmipc: callback error string: %s\n", r->s);
+        r0(r);
+    }
+}
+
 void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
     if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
@@ -203,10 +215,7 @@ void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdat
     if (tailer->callback && index > tailer->dispatch_after) {
         K msg = ktn(KC, lim); // don't free this, handed over to q interp
         memcpy((char*)msg->G0, base, lim);
-        K arg = knk(2, kj(index), msg);
-        K r = dot(tailer->callback, arg);
-        r0(arg);
-        r0(r);
+        dispatch_callback(tailer, index, msg);
     }
 }
 
@@ -231,14 +240,11 @@ void parse_data_kx(unsigned char* base, int lim, uint64_t index, void* userdata)
         int ok = okx(msg);
         if (ok) {
             K out = d9(msg);
-            K arg = knk(2, kj(index), out);
-            K r = dot(tailer->callback, arg);
-            r0(arg);
-            r0(r);
+            r0(msg);
+            dispatch_callback(tailer, index, out);
         } else {
             if (debug) printf("shmipc: caution index %" PRIu64 " bytes !ok as kx, skipping\n", index);
         }
-        r0(msg);
     }
 }
 
