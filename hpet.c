@@ -10,11 +10,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifdef __APPLE__
-#include <sys/event.h>
-#elif __linux__
+#ifdef __linux__
 #include <stdint.h>
 #include <sys/timerfd.h>
+#elif __APPLE__
+#include <sys/event.h>
 #else
 
 #endif
@@ -37,7 +37,7 @@ K read_cb(int fd) {
 		sd0(fd);
 		return orr("read");
 	}
-#else
+#elif __APPLE__
     struct kevent e;
 	int res = kevent(fd, 0, 0, &e, 1, 0); // get the event
 	if (res <= 0) {
@@ -47,7 +47,7 @@ K read_cb(int fd) {
 #endif
 
     // prep args and fire callback
-    K msg = ki(0); // don't free this, handed over to q interp
+    K msg = ki(fd); // don't free this, handed over to q interp
     K arg = knk(1, msg);
     K r = dot(rcb, arg);
 	return ki(0);
@@ -58,10 +58,10 @@ K hpet_open(K cb, K timespan) {
     if (timespan->t != -KN) return krr("y timespan expected");
 
     int fd;
-#ifdef __APPLE__
-    fd = kqueue();
-#else
+#ifdef __linux__
 	fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+#elif __APPLE__
+    fd = kqueue();
 #endif
 	if (fd < 0 || fd >= MAX_KX_FD) {
 		close(fd);
@@ -102,13 +102,7 @@ K hpet_update(K x, K timespan) {
 
     printf("hpet: setting fd %d timespan to %lluns\n", fd, timespan->j);
 
-#ifdef __APPLE__
-	struct kevent e;
-    EV_SET(&e, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_NSECONDS, timespan->j, 0);
-    if (kevent(fd, &e, 1, 0, 0, 0) != 0) {
-		orr("hpet update kevent error");
-	}
-#else
+#ifdef __linux__
 	struct itimerspec newtimer;
 	newtimer.it_interval.tv_sec = (timespan->j) / (J)1e9;
 	newtimer.it_interval.tv_nsec = timespan->j%(J)1e9;
@@ -116,6 +110,12 @@ K hpet_update(K x, K timespan) {
 	newtimer.it_value.tv_nsec = timespan->j%(J)1e9;
 	if (timerfd_settime(fd, 0, &newtimer, NULL) != 0) {
 		orr("hpet update error");
+	}
+#elif __APPLE__
+	struct kevent e;
+    EV_SET(&e, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, NOTE_NSECONDS, timespan->j, 0);
+    if (kevent(fd, &e, 1, 0, 0, 0) != 0) {
+		orr("hpet update kevent error");
 	}
 #endif
 	return (K) 0;
