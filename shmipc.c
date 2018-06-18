@@ -166,6 +166,8 @@ void parse_queuefile_data(unsigned char*, int, queue_t*, tailer_t*, uint64_t);
 int shmipc_peek_tailer(queue_t*, tailer_t*);
 void shmipc_peek_queue(queue_t*);
 void shmipc_debug_tailer(queue_t*, tailer_t*);
+K shmipc_append_ts(K, K, K);
+K queuefile_init(char*, queue_t*);
 
 // compare and swap, 32 bits, addressed by a 64bit pointer
 static inline uint32_t lock_cmpxchgl(unsigned char *mem, uint32_t newval, uint32_t oldval) {
@@ -268,7 +270,7 @@ K shmipc_init(K dir, K parser) {
     debug = getenv("SHMIPC_DEBUG");
     wire_trace = getenv("SHMIPC_WIRETRACE");
 
-    pid_header = (getpid() & HD_MASK_LENGTH) | HD_WORKING;
+    pid_header = (getpid() & HD_MASK_LENGTH);
 
     printf("shmipc: opening dir %s format %s\n", dir->s, parser->s);
 
@@ -610,7 +612,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
             int fopen_flags = O_RDONLY;
             if (tailer->mmap_protection != PROT_READ) fopen_flags = O_RDWR;
             if ((tailer->qf_fd = open(tailer->qf_fn, fopen_flags)) < 0) {
-                printf("shmipc:  awaiting queuefile for %s %d errno=%d\n", tailer->qf_fn, tailer->qf_fd, errno);
+                printf("shmipc:  awaiting queuefile for %s open errno=%d %s\n", tailer->qf_fn, errno, strerror(errno));
 
                 // if our cycle < highCycle, permitted to skip a missing file rather than wait
                 if (cycle < queue->highest_cycle) {
@@ -780,8 +782,13 @@ void shmipc_debug_tailer(queue_t* queue, tailer_t* tailer) {
 }
 
 K shmipc_append(K dir, K msg) {
+    return shmipc_append_ts(dir,msg,NULL);
+}
+
+K shmipc_append_ts(K dir, K msg, K ms) {
     if (dir->t != -KS) return krr("dir is not symbol");
     if (dir->s[0] != ':') return krr("dir is not symbol handle :");
+    if (ms != NULL && ms->t != -KJ) return krr("ms NULL or J milliseconds");
 
     // Appending logic
     // 0) catch up to the end of the current file.
@@ -818,6 +825,8 @@ K shmipc_append(K dir, K msg) {
     msg = queue->encodecheck(queue, msg); // abort write if r==0
     if (msg == NULL) return msg;
 
+    shmipc_peek_queue_modcount(queue); // get highest and lowest
+
     // build a special tailer with the protection bits and file descriptor set to allow
     // writing.
     if (queue->appender == NULL) {
@@ -833,16 +842,55 @@ K shmipc_append(K dir, K msg) {
 
         queue->appender = tailer;
     }
+    tailer_t* appender = queue->appender;
 
-    shmipc_peek_queue_modcount(queue);
+
+    // if given a clock, use this to switch cycle
+    // which may be higher that maxCycle, in which case we need to poke the directory-listing
+    if (ms) {
+        uint64_t cyc = (ms->j - queue->roll_epoch) / queue->roll_length;
+        if (cyc != appender->qf_index >> queue->cycle_shift) {
+            printf("shmipc: appender setting cycle from timestamp: current %" PRIu64 " proposed %" PRIu64 "\n", appender->qf_index >> queue->cycle_shift, cyc);
+            appender->qf_index = cyc << queue->cycle_shift;
+        }
+    }
 
     // poll the appender
-    tailer_t* appender = queue->appender;
     while (1) {
         int r = shmipc_peek_tailer(queue, appender);
         // TODO: 2nd call defensive to ensure 1 whole blocksize is available to put
         r = shmipc_peek_tailer(queue, appender);
         // printf(" appender peek %d\n", r);
+
+        if (r == 2) {
+            // our cycle is pointing to a queuefile that does not exist
+            // as we are writer, create it with temporary filename, atomically
+            // move it to the desired name, then bump the global highest_cycle
+            // value if rename succeeded
+            char* fn_buf;
+            int bufsz = asprintf(&fn_buf, "%s.%d.tmp", appender->qf_fn, pid_header);
+
+            // if queuefile_init fails via. krr, re-throw the error and abort the write
+            K x = ee(queuefile_init(fn_buf, queue));
+            if (x && x->t == KERR && x->s) {
+                printf("shmipc: queuefile_init error %p %s\n", x, x->s);
+                return krr(x->s);
+            }
+
+            if (rename(fn_buf, appender->qf_fn) != 0) {
+                // rename failed, maybe raced with another writer, delay and try again
+                printf("shmipc: create queuefile %s failed at rename, errno %d\n", fn_buf, errno);
+                sleep(1);
+                continue;
+            }
+            printf("renamed %s to %s\n", fn_buf, appender->qf_fn);
+            free(fn_buf);
+
+
+
+            // rename worked, we can now re-try the peek_tailer
+            continue;
+        }
 
         // If the tailer returns 0, we are all set pointing to the next unwritten entry.
         // if we write to qf_buf and the state is not zero we'll hit sigbus etc, so sleep
@@ -994,4 +1042,35 @@ K shmipc_close(K dir) {
         queue = queue->next;
     }
     return krr("does not exist");
+}
+
+K queuefile_init(char* fn, queue_t* queue) {
+    long int qf_sz = 83754496L;
+    int fd;
+    int mode = 0777;
+
+    printf("Creating %s\n", fn);
+
+    // open/create the output file
+    if ((fd = open(fn, O_RDWR | O_CREAT | O_TRUNC, mode)) < 0) {
+        printf("can't create %s for writing", fn);
+        return krr("shmipc: create tmp queuefile err");
+    }
+
+    // go to the location corresponding to the last byte
+    if (lseek(fd, qf_sz - 1, SEEK_SET) == -1) {
+        return krr("shmipc: lseek error");
+    }
+
+    // write a dummy byte at the last location
+    if (write(fd, "", 1) != 1) {
+        return krr("shmipc: write error");
+    }
+
+    // TODO: write header
+    // TODO: write index2index
+    printf("Created %s\n", fn);
+
+    close(fd);
+    return NULL;
 }

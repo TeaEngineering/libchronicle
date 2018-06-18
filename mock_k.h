@@ -22,6 +22,15 @@ K orr(const S msg) {
     kxx_msg = msg;
     return (K)NULL;
 }
+K ee(K ignored) {
+    if (kxx_errno != 0) {
+        K r = ktn(KERR, 1);
+        r->s = kxx_msg;
+        kxx_errno = 0;
+        return r;
+    }
+    return ignored;
+}
 K ki(int i) {
     K r = ktn(-KI, 0);
     r->i = i;
