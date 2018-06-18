@@ -65,7 +65,7 @@ K hpet_open(K cb, K timespan) {
 #endif
 	if (fd < 0 || fd >= MAX_KX_FD) {
 		close(fd);
-		return krr("hpet fd error %d > %d\n"); // TODO memleak
+		return krr("hpet fd error");
 	}
 	r1(cb);
 	klookup_cb[fd] = cb;
@@ -79,7 +79,7 @@ K hpet_close(K x) {
 
 	if (fd < 0 || fd >= MAX_KX_FD) {
 		close(fd);
-		return krr("hpet fd error %d > %d\n"); // TODO memleak
+		return krr("hpet fd error");
 	}
 	printf("hpet: closing timer fd %d\n", fd);
 
@@ -96,7 +96,7 @@ K hpet_update(K x, K timespan) {
 	if (x->t != -KI) return krr("x fd is not int");
 	int fd = x->i;
 	K rcb = klookup_cb[fd];
-	if(rcb == NULL)	return krr((S) "x fd not started");
+	if(rcb == NULL)	return krr("x fd not started");
 
     if (timespan->t != -KN) return krr("y timespan expected");
 
