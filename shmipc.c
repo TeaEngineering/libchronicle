@@ -168,6 +168,7 @@ void shmipc_peek_queue(queue_t*);
 void shmipc_debug_tailer(queue_t*, tailer_t*);
 K shmipc_append_ts(K, K, K);
 K queuefile_init(char*, queue_t*);
+K directory_listing_reopen(queue_t*, int, int);
 
 // compare and swap, 32 bits, addressed by a 64bit pointer
 static inline uint32_t lock_cmpxchgl(unsigned char *mem, uint32_t newval, uint32_t oldval) {
@@ -176,6 +177,15 @@ static inline uint32_t lock_cmpxchgl(unsigned char *mem, uint32_t newval, uint32
     : "=a" (ret), "=m" (*mem)
     : "r" (newval), "m" (*mem), "0" (oldval));
     return (uint32_t) ret;
+}
+
+static inline uint32_t lock_xadd(unsigned char* mem, uint32_t val) {
+    __asm__ volatile("lock; xaddl %0, %1"
+    : "+r" (val), "+m" (*mem) // input+output
+    : // No input-only
+    : "memory"
+    );
+    return (uint32_t)val;
 }
 
 char* get_cycle_fn_yyyymmdd(queue_t* queue, int cycle) {
@@ -313,23 +323,9 @@ K shmipc_init(K dir, K parser) {
 
     // Can we map the directory-listing.cq4t file
     asprintf(&queue->dirlist_name, "%s/directory-listing.cq4t", queue->dirname);
-    if ((queue->dirlist_fd = open(queue->dirlist_name, O_RDONLY)) < 0) {
-        return orr("dirlist open");
-    }
-
-    // find size of dirlist and mmap
-    if (fstat(queue->dirlist_fd, &queue->dirlist_statbuf) < 0)
-        return krr("dirlist fstat");
-    if ((queue->dirlist = mmap(0, queue->dirlist_statbuf.st_size, PROT_READ, MAP_SHARED, queue->dirlist_fd, 0)) == MAP_FAILED)
-        return krr("dirlist mmap fail");
-
-    if (debug) printf("shmipc: parsing dirlist\n");
-    parse_dirlist(queue);
-
-    // check the polled fields in header section were all resolved to pointers within the map
-    if (queue->dirlist_fields.highest_cycle == NULL || queue->dirlist_fields.lowest_cycle == NULL ||
-        queue->dirlist_fields.modcount == NULL) {
-        return krr("dirlist parse hdr ptr fail");
+    K x = ee(directory_listing_reopen(queue, O_RDONLY, PROT_READ));
+    if (x && x->t == KERR && x->s) {
+        printf("shmipc: dir listing %p %s\n", x, x->s); return krr(x->s);
     }
 
     // read a 'queue' header from any one of the datafiles to get the
@@ -548,7 +544,7 @@ K shmipc_peek(K x) {
     return (K)0;
 }
 
-void shmipc_peek_queue_modcount(queue_t* queue) {
+void peek_queue_modcount(queue_t* queue) {
     // poll shared directory for modcount
     uint64_t modcount;
     memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
@@ -562,9 +558,19 @@ void shmipc_peek_queue_modcount(queue_t* queue) {
     }
 }
 
+void poke_queue_modcount(queue_t* queue) {
+    // push modifications to lowestCycle, highestCycle to directory-listing mmap
+    // and atomically increment the modcount
+    uint64_t modcount;
+    memcpy(queue->dirlist_fields.highest_cycle, &queue->highest_cycle, sizeof(modcount));
+    memcpy(queue->dirlist_fields.lowest_cycle, &queue->lowest_cycle, sizeof(modcount));
+    lock_xadd(queue->dirlist_fields.modcount, 1);
+    printf("shmipc: bumped modcount\n");
+}
+
 void shmipc_peek_queue(queue_t *queue) {
     if (debug) printf("peeking at %s\n", queue->hsymbolp);
-    shmipc_peek_queue_modcount(queue);
+    peek_queue_modcount(queue);
 
     tailer_t *tailer = queue->tailers;
     while (tailer != NULL) {
@@ -825,7 +831,8 @@ K shmipc_append_ts(K dir, K msg, K ms) {
     msg = queue->encodecheck(queue, msg); // abort write if r==0
     if (msg == NULL) return msg;
 
-    shmipc_peek_queue_modcount(queue); // get highest and lowest
+    // refresh highest and lowest, allowing our appender to follow another appender
+    peek_queue_modcount(queue);
 
     // build a special tailer with the protection bits and file descriptor set to allow
     // writing.
@@ -841,6 +848,12 @@ K shmipc_append_ts(K dir, K msg, K ms) {
         tailer->mmap_protection = PROT_READ | PROT_WRITE;
 
         queue->appender = tailer;
+
+        // re-open directory-listing mapping in read-write mode
+        K x = ee(directory_listing_reopen(queue, O_RDWR, PROT_READ | PROT_WRITE));
+        if (x && x->t == KERR && x->s) {
+            printf("shmipc: rw dir listing %p %s\n", x, x->s); return krr(x->s);
+        }
     }
     tailer_t* appender = queue->appender;
 
@@ -873,8 +886,7 @@ K shmipc_append_ts(K dir, K msg, K ms) {
             // if queuefile_init fails via. krr, re-throw the error and abort the write
             K x = ee(queuefile_init(fn_buf, queue));
             if (x && x->t == KERR && x->s) {
-                printf("shmipc: queuefile_init error %p %s\n", x, x->s);
-                return krr(x->s);
+                printf("shmipc: queuefile_init error %p %s\n", x, x->s); return krr(x->s);
             }
 
             if (rename(fn_buf, appender->qf_fn) != 0) {
@@ -942,6 +954,13 @@ K shmipc_append_ts(K dir, K msg, K ms) {
 
         printf("shmipc: write lock failed, peeking again\n");
         sleep(1);
+    }
+
+    // if we've rolled a new file,inform listeners by bumping modcount
+    uint64_t cyc = appender->qf_index >> queue->cycle_shift;
+    if (cyc > queue->highest_cycle) {
+        queue->highest_cycle = cyc;
+        poke_queue_modcount(queue);
     }
 
     return kj(appender->qf_index);
@@ -1073,4 +1092,27 @@ K queuefile_init(char* fn, queue_t* queue) {
 
     close(fd);
     return NULL;
+}
+
+K directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
+
+    if ((queue->dirlist_fd = open(queue->dirlist_name, open_flags)) < 0) {
+        return orr("dirlist open");
+    }
+
+    // find size of dirlist and mmap
+    if (fstat(queue->dirlist_fd, &queue->dirlist_statbuf) < 0)
+        return krr("dirlist fstat");
+    if ((queue->dirlist = mmap(0, queue->dirlist_statbuf.st_size, mmap_prot, MAP_SHARED, queue->dirlist_fd, 0)) == MAP_FAILED)
+        return krr("dirlist mmap fail");
+
+    if (debug) printf("shmipc: parsing dirlist\n");
+    parse_dirlist(queue);
+
+    // check the polled fields in header section were all resolved to pointers within the map
+    if (queue->dirlist_fields.highest_cycle == NULL || queue->dirlist_fields.lowest_cycle == NULL ||
+        queue->dirlist_fields.modcount == NULL) {
+        return krr("dirlist parse hdr ptr fail");
+    }
+    return (K)NULL;
 }
