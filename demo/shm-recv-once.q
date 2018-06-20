@@ -1,4 +1,4 @@
-\l native/shm.q
+\l shm.q
 
 // Recovery logic
 .pos:0
