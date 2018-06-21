@@ -269,7 +269,12 @@ int append_data_kx(unsigned char* base, int lim, int* sz, K msg) {
 }
 
 K append_check_kx(queue_t* queue, K msg) {
-    K r = b9(2, msg); // serialise before we take the writer lock
+    K r = b9(3, msg);
+    if (r == NULL) {
+        printf("shmipc: failed to serialise msg using b9 - aborting\n");
+        abort();
+    }
+    if (debug) printf("shmipc: kx persist needs %lld bytes\n", r->n);
     while (r->n > queue->blocksize)
         queue_double_blocksize(queue);
     return r;
