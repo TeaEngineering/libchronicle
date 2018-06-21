@@ -685,7 +685,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
             tailer->qf_mmapsz = limit;
             tailer->qf_mmapoff = mmapoff;
             if ((tailer->qf_buf = mmap(0, tailer->qf_mmapsz, tailer->mmap_protection, MAP_SHARED, tailer->qf_fd, tailer->qf_mmapoff)) == MAP_FAILED) {
-
+                printf("shmipc:  mmap failed %s %" PRIx64 " size %" PRIx64 " error=%s\n", tailer->qf_fn, tailer->qf_mmapoff, tailer->qf_mmapsz, strerror(errno));
                 tailer->qf_buf = NULL;
                 return 4;
             }
@@ -1101,7 +1101,7 @@ K shmipc_close(K dir) {
         parent = &queue->next;
         queue = queue->next;
     }
-    return krr("does not exist");
+    return krr("shmipc: close: queue does not exist");
 }
 
 K queuefile_init(char* fn, queue_t* queue) {
