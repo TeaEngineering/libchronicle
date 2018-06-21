@@ -153,10 +153,13 @@ typedef struct queue {
     struct queue*     next;
 } queue_t;
 
+// paramaters that control behavior, not exposed for modification
+uint32_t patch_cycles = 3;
+long int qf_disk_sz = 83754496L;
+
 // globals
 char* debug = NULL;
 uint32_t pid_header = 0;
-uint32_t patch_cycles = 3;
 queue_t *queue_head = NULL;
 
 // forward declarations
@@ -587,7 +590,8 @@ void shmipc_peek_queue(queue_t *queue) {
 //     3   fstat failed
 //     4   mmap failed (probably fatal)
 //     5   not yet polled
-const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?"};
+//     6   queuefile at fid needs extending on disk
+const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?", "EXTEND_FAIL"};
 
 int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
     // for each cycle file { for each block { for each entry { emit }}}
@@ -654,8 +658,13 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         // renew stat if we would otherwise map less than 2* blocksize
         // TODO: write needs to extend file here!
         if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize) {
+            if (debug) printf("shmmain: approaching file size limit, less than two blocks remain\n");
             if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
                 return 3;
+            // signal to extend queuefile iff we are an appending tailer
+            if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize && tailer->mmap_protection != PROT_READ) {
+                return 6;
+            }
         }
 
         int limit = tailer->qf_statbuf.st_size - mmapoff > 2*queue->blocksize ? 2*queue->blocksize : tailer->qf_statbuf.st_size - mmapoff;
@@ -854,6 +863,7 @@ K shmipc_append_ts(K dir, K msg, K ms) {
         if (x && x->t == KERR && x->s) {
             printf("shmipc: rw dir listing %p %s\n", x, x->s); return krr(x->s);
         }
+        if (debug) printf("shmipc: appender created\n");
     }
     tailer_t* appender = queue->appender;
 
@@ -873,7 +883,7 @@ K shmipc_append_ts(K dir, K msg, K ms) {
         int r = shmipc_peek_tailer(queue, appender);
         // TODO: 2nd call defensive to ensure 1 whole blocksize is available to put
         r = shmipc_peek_tailer(queue, appender);
-        // printf(" appender peek %d\n", r);
+        if (debug) printf("shmipc: writeloop appender in state %d\n", r);
 
         if (r == 2) {
             // our cycle is pointing to a queuefile that does not exist
@@ -898,9 +908,25 @@ K shmipc_append_ts(K dir, K msg, K ms) {
             printf("renamed %s to %s\n", fn_buf, appender->qf_fn);
             free(fn_buf);
 
-
-
             // rename worked, we can now re-try the peek_tailer
+            continue;
+        }
+
+        if (r == 6) {
+            // current queuefile has less than two blocks remaining, needs extending
+            // should the extend fail, we are having disk issues, wait until fixed
+            uint64_t extend_to = appender->qf_statbuf.st_size + qf_disk_sz;
+            if (lseek(appender->qf_fd, extend_to - 1, SEEK_SET) == -1) {
+                printf("shmmain: extend queuefile %s failed at lseek: %s\n", appender->qf_fn, strerror(errno));
+                sleep(1);
+                continue;
+            }
+            if (write(appender->qf_fd, "", 1) != 1) {
+                printf("shmmain: extend queuefile %s failed at write: %s\n", appender->qf_fn, strerror(errno));
+                sleep(1);
+                continue;
+            }
+            printf("shmmain: extended queuefile %s to %" PRIu64 " bytes\n", appender->qf_fn, extend_to);
             continue;
         }
 
@@ -911,6 +937,14 @@ K shmipc_append_ts(K dir, K msg, K ms) {
             printf("shmipc: Cannot write in state %d, sleeping\n", r);
             sleep(1);
             continue;
+        }
+
+        // TODO: encoder
+        uint32_t msz = msg->n;
+        if (msz > HD_MASK_META) return krr("`shm msg sz > 30bit");
+        if ((appender->qf_tip - appender->qf_mmapoff) + msz > appender->qf_mmapsz) {
+            printf("aborting on bug: write would segfault buffer!\n");
+            abort();
         }
 
         // Since appender->buf is pointing at the queue head, so we can
@@ -943,10 +977,10 @@ K shmipc_append_ts(K dir, K msg, K ms) {
             }
 
             // TODO - use encoder
-            memcpy(ptr+4, (char*)msg->G0, msg->n);
+            memcpy(ptr+4, (char*)msg->G0, msz);
 
             asm volatile ("mfence" ::: "memory");
-            uint32_t header = msg->n & HD_MASK_LENGTH;
+            uint32_t header = msz & HD_MASK_LENGTH;
             memcpy(ptr, &header, sizeof(header));
 
             break;
@@ -962,6 +996,8 @@ K shmipc_append_ts(K dir, K msg, K ms) {
         queue->highest_cycle = cyc;
         poke_queue_modcount(queue);
     }
+
+    if (debug) printf("shmipc: wrote %lld bytes as index %" PRIu64 "\n", msg->n, appender->qf_index);
 
     return kj(appender->qf_index);
 }
@@ -1064,7 +1100,6 @@ K shmipc_close(K dir) {
 }
 
 K queuefile_init(char* fn, queue_t* queue) {
-    long int qf_sz = 83754496L;
     int fd;
     int mode = 0777;
 
@@ -1077,7 +1112,7 @@ K queuefile_init(char* fn, queue_t* queue) {
     }
 
     // go to the location corresponding to the last byte
-    if (lseek(fd, qf_sz - 1, SEEK_SET) == -1) {
+    if (lseek(fd, qf_disk_sz - 1, SEEK_SET) == -1) {
         return krr("shmipc: lseek error");
     }
 
