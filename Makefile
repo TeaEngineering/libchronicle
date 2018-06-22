@@ -6,7 +6,7 @@ detected_OS := $(shell uname -s)
 
 IDIR=.
 CC=gcc
-CFLAGS=-DKXVER=3 -fPIC -I$(IDIR) -shared
+CFLAGS=-DKXVER=3 -fPIC -I$(IDIR)
 CDFLAGS=-shared
 ifeq ($(detected_OS),Darwin)  # Mac OS X
     CDFLAGS += -undefined dynamic_lookup
@@ -27,7 +27,16 @@ $(ODIR)/%.so: %.c $(DEPS)
 $(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS)
 
+coverage: obj/shmcov
+	obj/shmcov -v -a WORLD :demo/stress
+	/Library/Developer/CommandLineTools/usr/bin/llvm-profdata merge default.profraw -output=default.profout
+	/Library/Developer/CommandLineTools/usr/bin/llvm-cov show -instr-profile default.profout obj/shmcov
+
+$(ODIR)/shmcov: shmmain.c shmipc.c mock_k.h $(DEPS)
+	$(CC) -o $@ $< $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping -O0 -g
+
 .PHONY: clean
 
 clean:
-	rm -f $(ODIR)/*.so *~ core $(INCDIR)/*~
+	rm -f *~ core $(INCDIR)/*~ default.prof*
+	rm -Rf $(ODIR)/*

@@ -352,13 +352,13 @@ K shmipc_init(K dir, K parser) {
     if (fstat(queuefile_fd, &queuefile_statbuf) < 0)
         return krr("qfi fstat");
 
-    // we onlt need the first block
+    // only need the first block
     queuefile_extent = queuefile_statbuf.st_size < queue->blocksize ? queuefile_statbuf.st_size : queue->blocksize;
 
     if ((queuefile_buf = mmap(0, queuefile_extent, PROT_READ, MAP_SHARED, queuefile_fd, 0)) == MAP_FAILED)
         return krr("qfi mmap fail");
 
-    // we don't need a data-parser at this stage as we only need values from the header
+    // we don't need a data-parser at this stage as only need values from the header
     if (debug) printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
     parse_queuefile_meta(queuefile_buf, queuefile_extent, queue);
 
