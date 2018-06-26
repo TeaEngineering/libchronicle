@@ -216,10 +216,11 @@ void dispatch_callback(tailer_t* tailer, uint64_t index, K obj) {
     r0(arg);
     if (r == NULL) {
         printf(" shmipc: caution, error signalled by callback (returned NULL)\n");
+        return;
     } else if (r && r->t == KERR) {
         printf(" shmipc: callback error string: %s\n", r->s);
-        r0(r);
     }
+    r0(r);
 }
 
 void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
