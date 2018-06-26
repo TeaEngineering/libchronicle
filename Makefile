@@ -25,7 +25,7 @@ $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
 
 $(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
-	$(CC) -o $@ $< $(CFLAGS)
+	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
 coverage: obj/shmcov
 	obj/shmcov -v -a WORLD :demo/stress
@@ -35,7 +35,10 @@ coverage: obj/shmcov
 $(ODIR)/shmcov: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping -O0 -g
 
-.PHONY: clean
+grind: $(ODIR)/shmmain
+	valgrind --track-origins=yes --leak-check=full $(ODIR)/shmmain :../java/out
+
+.PHONY: clean grind coverage
 
 clean:
 	rm -f *~ core $(INCDIR)/*~ default.prof*
