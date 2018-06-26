@@ -304,8 +304,8 @@ K shmipc_init(K dir, K parser) {
     if (queue == NULL) return krr("m fail");
     bzero(queue, sizeof(queue_t));
 
-    // dir is on the stack, but dir->s points to the heap interned table. safe to use ref to q
-    queue->dirname = &dir->s[1];
+    // unsafe to use ref to q symbol here (seen it go out of scope), so dup
+    queue->dirname = strdup(&dir->s[1]);
     queue->blocksize = 1024*1024; // must be a power of two (single 1 bit)
 
     // Is this a directory
@@ -1091,6 +1091,7 @@ K shmipc_close(K dir) {
             munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
             close(queue->dirlist_fd);
             free(queue->dirlist_name);
+            free(queue->dirname);
             free(queue->queuefile_pattern);
             free(queue->roll_format);
             globfree(&queue->queuefile_glob);
