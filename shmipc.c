@@ -75,9 +75,11 @@
 #define HD_MASK_LENGTH 0x3FFFFFFF
 #define HD_MASK_META   HD_EOF
 
-// a couple of funciton pointer typedefs
-typedef void (*parsedata_f)(unsigned char*,int,uint64_t,void* userdata);
+// function pointer typedefs
+struct queue;
+typedef int (*parsedata_f)(unsigned char*,int,uint64_t,void* userdata);
 typedef int (*appenddata_f)(unsigned char*,int,int*,K);
+typedef K (*encodecheck_f)(struct queue*,K);
 
 typedef struct {
     unsigned char *highest_cycle;
@@ -142,7 +144,7 @@ typedef struct queue {
 
     parsedata_f       parser;
     appenddata_f      encoder;
-    K (*encodecheck)(struct queue*, K);
+    encodecheck_f     encodecheck;
 
     tailer_t*         tailers;
 
