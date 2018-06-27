@@ -155,8 +155,9 @@ void parse_wire(unsigned char* base, int lim, uint64_t index, wirecallbacks_t* c
     }
 }
 
-void parse_wire2(unsigned char* base, int lim, uint64_t index, void* cbs) {
+int parse_wire_data(unsigned char* base, int lim, uint64_t index, void* cbs) {
     parse_wire(base, lim, index, (wirecallbacks_t*)cbs);
+    return 0;
 }
 
 

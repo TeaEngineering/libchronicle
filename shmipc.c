@@ -91,6 +91,10 @@ typedef struct tailer {
     uint64_t          dispatch_after; // for resume support
     int               state;
     K                 callback;
+    // to support the 'collect' operation to wait and return next item, ignoring callback
+    int               collect;
+    K                 collected_value;
+
     int               mmap_protection; // PROT_READ etc.
 
     // currently open queue file
@@ -106,6 +110,9 @@ typedef struct tailer {
     unsigned char*    qf_buf;
     uint64_t          qf_mmapoff;
     uint64_t          qf_mmapsz;
+
+    struct queue*     queue;
+    int               handle;
 
     struct tailer*    next;
 } tailer_t;
@@ -162,7 +169,10 @@ long int qf_disk_sz = 83754496L;
 // globals
 char* debug = NULL;
 uint32_t pid_header = 0;
-queue_t *queue_head = NULL;
+queue_t* queue_head = NULL;
+tailer_t** tailer_handles;
+int tailer_handles_count = 0;
+
 
 // forward declarations
 void parse_dirlist(queue_t*);
@@ -212,20 +222,27 @@ void queue_double_blocksize(queue_t* queue) {
     queue->blocksize = new_blocksize;
 }
 
-void dispatch_callback(tailer_t* tailer, uint64_t index, K obj) {
+// return 0 to continue dispaching, 7 to signal collected item
+int dispatch_callback(tailer_t* tailer, uint64_t index, K obj) {
     K arg = knk(2, kj(index), obj);
+    if (tailer->collect) {
+        tailer->collected_value = arg;
+        return 7;
+    }
+
     K r = dot(tailer->callback, arg);
     r0(arg);
     if (r == NULL) {
         printf(" shmipc: caution, error signalled by callback (returned NULL)\n");
-        return;
+        return 0;
     } else if (r && r->t == KERR) {
         printf(" shmipc: callback error string: %s\n", r->s);
     }
     r0(r);
+    return 0;
 }
 
-void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
+int parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
     if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
 
@@ -233,8 +250,9 @@ void parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdat
     if (tailer->callback && index > tailer->dispatch_after) {
         K msg = ktn(KC, lim); // don't free this, handed over to q interp
         memcpy((char*)msg->G0, base, lim);
-        dispatch_callback(tailer, index, msg);
+        return dispatch_callback(tailer, index, msg);
     }
+    return 0;
 }
 
 int append_data_text(unsigned char* base, int lim, int* sz, K msg) {
@@ -248,7 +266,7 @@ K append_check_text(queue_t* queue, K msg) {
     return msg;
 }
 
-void parse_data_kx(unsigned char* base, int lim, uint64_t index, void* userdata) {
+int parse_data_kx(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
 
     // prep args and fire callback
@@ -259,11 +277,12 @@ void parse_data_kx(unsigned char* base, int lim, uint64_t index, void* userdata)
         if (ok) {
             K out = d9(msg);
             r0(msg);
-            dispatch_callback(tailer, index, out);
+            return dispatch_callback(tailer, index, out);
         } else {
             if (debug) printf("shmipc: caution index %" PRIu64 " bytes !ok as kx, skipping\n", index);
         }
     }
+    return 0;
 }
 
 int append_data_kx(unsigned char* base, int lim, int* sz, K msg) {
@@ -428,15 +447,16 @@ K shmipc_init(K dir, K parser) {
 //    2  we hit EOF
 //    3  data extent will cross base+limit
 //    4  hit data with no data parser
+//   (7  collected value - from parse_data)
 // if any entries are read the values at basep and indexp are updated
-//
+// if parse_data returns non-zero, we pause parsing after the current item
 int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* extent, wirecallbacks_t* hcbs, parsedata_f parse_data, void* userdata) {
     uint32_t header;
     int sz;
     unsigned char* base = *basep;
     uint64_t index = *indexp;
-
-    while (1) {
+    int pd = 0;
+    while (!pd) {
         if (base+4 >= extent) return 3;
         memcpy(&header, base, sizeof(header)); // relax, fn optimised away
         // no speculative fetches before the header is read
@@ -463,7 +483,7 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
             if (debug) printf(" %" PRIu64 " @%p data size %x\n", index, base, sz);
             if (parse_data) {
                 if (base+4+sz >= extent) return 3;
-                parse_data(base+4, sz, index, userdata);
+                pd = parse_data(base+4, sz, index, userdata);
             } else {
                 // bail at first data message
                 return 4;
@@ -475,6 +495,7 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
         base = base + 4 + sz;
         *basep = base;
     }
+    return pd;
 }
 
 void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t* cbs) {
@@ -530,7 +551,7 @@ void parse_dirlist(queue_t* queue) {
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
-    parse_queue_block(&base, &index, base+lim, &hcbs, &parse_wire2, &cbs);
+    parse_queue_block(&base, &index, base+lim, &hcbs, &parse_wire_data, &cbs);
 }
 
 void parse_queuefile_meta(unsigned char* base, int limit, queue_t* queue) {
@@ -599,7 +620,8 @@ void shmipc_peek_queue(queue_t *queue) {
 //     4   mmap failed (probably fatal)
 //     5   not yet polled
 //     6   queuefile at fid needs extending on disk
-const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?", "EXTEND_FAIL"};
+//     7   a value was collected
+const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?", "EXTEND_FAIL", "COLLECTED"};
 
 int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
     // for each cycle file { for each block { for each entry { emit }}}
@@ -705,6 +727,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         //    2  we hit EOF         (handle)
         //    3  data extent will cross base+limit (handle)
         //    4  hit data with no data parser (won't happen)
+        //    7  collected item
         // if any entries are read the values at basep and indexp are updated
         int s = parse_queue_block(&basep, &index, extent, &hcbs, queue->parser, tailer);
         //printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
@@ -721,7 +744,7 @@ int shmipc_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
             tailer->qf_index = index;
         }
 
-        if (s == 1) return s;
+        if (s == 1 || s == 7) return s;
 
         if (s == 0) { // awaiting at end of queuefile
             if (cycle < queue->highest_cycle-patch_cycles) { // allowed to fast-forward
@@ -1048,10 +1071,37 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     tailer->state = 5;
     tailer->mmap_protection = PROT_READ;
 
-    tailer->next = queue->tailers;
+    tailer->next = queue->tailers; // linked list
     queue->tailers = tailer;
 
-    return (K)NULL;
+    tailer->queue = queue; // parent pointer
+
+    // maintain array for index lookup
+    tailer->handle = tailer_handles_count;
+    tailer_handles = realloc(tailer_handles, ++tailer_handles_count * sizeof(tailer_t*));
+    tailer_handles[tailer->handle] = tailer;
+    return ki(tailer->handle);
+}
+
+K shmipc_collect(K idx) {
+    if (idx->t != -KI) return krr("idx is not int");
+    if (idx->i < 0 || idx->i >= tailer_handles_count) return krr("idx out of range");
+    tailer_t* tailer = tailer_handles[idx->i];
+    tailer->collect = 1;
+
+    uint64_t delaycount = 0;
+    peek_queue_modcount(tailer->queue);
+    while (1) {
+        int r = shmipc_peek_tailer(tailer->queue, tailer);
+        if (debug) printf("collect value returns %d and object %p\n", r, tailer->collected_value);
+        if (r == 7) {
+            break;
+        }
+        if (delaycount++ >> 20) usleep(delaycount >> 20);
+    }
+    K x = tailer->collected_value;
+    tailer->collected_value = NULL;
+    return x;
 }
 
 void tailer_close(tailer_t* tailer) {
