@@ -55,8 +55,6 @@ void parse_wire(unsigned char* base, int lim, uint64_t index, wirecallbacks_t* c
     uint64_t padding64 = 0;
     uint64_t jlong2 = 0;
 
-    int stopsz = 0;
-
     // track nesting stack
     int nest = 0;
     unsigned char* pop_pos[10];

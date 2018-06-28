@@ -75,7 +75,6 @@ int main(const int argc, char **argv) {
 	// what follows is translated q calls from shmipc.q
 	K dir = kss(argv[optind]);
 	K parser = kss(kxflag ? "kx" : "text");
-	K r;
 	per(shmipc_init(dir, parser));
 
 	K cb = dl(&printxy, 2);

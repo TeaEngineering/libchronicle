@@ -6,7 +6,7 @@ detected_OS := $(shell uname -s)
 
 IDIR=.
 CC=gcc
-CFLAGS=-DKXVER=3 -fPIC -I$(IDIR)
+CFLAGS=-DKXVER=3 -fPIC -I$(IDIR) -Wall
 CDFLAGS=-shared
 ifeq ($(detected_OS),Darwin)  # Mac OS X
     CDFLAGS += -undefined dynamic_lookup

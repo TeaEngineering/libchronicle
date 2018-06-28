@@ -16,7 +16,6 @@
 #include <time.h>
 
 #include "k.h"
-#include "buffer.h"
 #include "wire.h"
 
 /**
@@ -922,7 +921,7 @@ K shmipc_append_ts(K dir, K msg, K ms) {
             // move it to the desired name, then bump the global highest_cycle
             // value if rename succeeded
             char* fn_buf;
-            int bufsz = asprintf(&fn_buf, "%s.%d.tmp", appender->qf_fn, pid_header);
+            asprintf(&fn_buf, "%s.%d.tmp", appender->qf_fn, pid_header);
 
             // if queuefile_init fails via. krr, re-throw the error and abort the write
             K x = ee(queuefile_init(fn_buf, queue));

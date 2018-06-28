@@ -50,6 +50,7 @@ K read_cb(int fd) {
     K msg = ki(fd); // don't free this, handed over to q interp
     K arg = knk(1, msg);
     K r = dot(rcb, arg);
+    if (r) r0(r);
 	return ki(0);
 }
 
