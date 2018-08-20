@@ -17,8 +17,8 @@ shmquery["0"]; / round trip to create queuefiles etc
 
 /shmquery["4+12"];
 n:1000;
-\t do[n;shmquery["12+34"]];
+\t:n shmquery["12+34"];
 
-/h: hopen `::12345;
-/ \t do[n;h"12+34"];
+h: hopen `::12345;
+\t:n h"12+34";
 

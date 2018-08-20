@@ -203,6 +203,7 @@ static inline uint32_t lock_xadd(unsigned char* mem, uint32_t val) {
 }
 
 char* get_cycle_fn_yyyymmdd(queue_t* queue, int cycle) {
+    // TODO: replace with https://ideone.com/7BADb as gmtime_r leaks
     char* buf;
     // time_t aka long. seconds since midnight 1970
     time_t rawtime = cycle * 60*60*24;
@@ -900,6 +901,7 @@ K shmipc_append_ts(K dir, K msg, K ms) {
 
     // if given a clock, use this to switch cycle
     // which may be higher that maxCycle, in which case we need to poke the directory-listing
+    // TODO: move inside write loop to trigger EOF
     if (ms) {
         uint64_t cyc = (ms->j - queue->roll_epoch) / queue->roll_length;
         if (cyc != appender->qf_index >> queue->cycle_shift) {
