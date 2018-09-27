@@ -21,6 +21,9 @@ DEPS = k.h wire.h
 
 all: obj/cpu.so obj/hpet.so obj/shmipc.so obj/shmmain
 
+k.h:
+	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
+
 $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
 

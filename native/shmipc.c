@@ -74,6 +74,8 @@
 #define HD_MASK_LENGTH 0x3FFFFFFF
 #define HD_MASK_META   HD_EOF
 
+#define KERR -128
+
 // function pointer typedefs
 struct queue;
 typedef int (*parsedata_f)(unsigned char*,int,uint64_t,void* userdata);
@@ -171,7 +173,6 @@ uint32_t pid_header = 0;
 queue_t* queue_head = NULL;
 tailer_t** tailer_handles;
 int tailer_handles_count = 0;
-
 
 // forward declarations
 void parse_dirlist(queue_t*);
