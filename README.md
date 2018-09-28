@@ -1,5 +1,5 @@
 
-## Shared-memory interprocess communication using Chronicle Software's chronocle-queue protocol
+## Shared-memory communication using Chronicle's chronocle-queue protocol
 
 [OpenHFT](https://github.com/OpenHFT) aka. [Chronicle Software Ltd.](https://chronicle.software/) provide an open-source Java '[Chronocle Queue](https://github.com/OpenHFT/Chronicle-Queue)' ipc library. This project is an unaffiliated, mostly-compatible, open source implementation in the C-programming language, with bindings to other non-JVM languages. To differentiate I refer to OpenHFTs implementation capitalised as 'Chronicle Queue', and the underlying procotol itself chronicle-queue, and this implementation as `libchronicle`.
 
