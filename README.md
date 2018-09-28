@@ -3,30 +3,33 @@
 
 [OpenHFT](https://github.com/OpenHFT) aka. [Chronicle Software Ltd.](https://chronicle.software/) provide an open-source Java '[Chronocle Queue](https://github.com/OpenHFT/Chronicle-Queue)' ipc library. This project is an unaffiliated, mostly-compatible, open source implementation in the C-programming language, with bindings to other non-JVM languages. To differentiate I refer to OpenHFTs implementation capitalised as 'Chronicle Queue', and the underlying procotol itself chronicle-queue, and this implementation as `libchronicle`.
 
-### Documenting the chronicale-queue format
-There is no controlling broker process, the operating system provides persistence and hardware itself provides arbitration. Messages always flow from an 'appender' to a 'tailer' process, in one direction with no flow control. The queue is fully contained with a standard directory, which should be otherwise empty.
-'appender' publishes payload to a queue directory, is given 64bit value 'index' of the write
-'tailer' subscribes to messages in a queue directory, starting from 0 or provided index
-Multiple appenders, multiple tailers supported, can be added and removed at will so long as all on
-same machine. All writes resolve into total order which is preserved on replay. Message length must
-pack into 30 bits. Typical IPC latency 1us, depending on frequency of shmipc.peek
+## Documenting the chronicale-queue format
+The format of the queue-files containing your data, the shared memory protocol, and the safe ordering of queuefile maintenance is currently implementation defined. One hope is that this project will change that!
 
-Settings control how the 64-bit index value is interpreted, the typical scheme is upper 32 bits
+A chronicle-queue has no single controlling broker process, the operating system provides persistence and hardware itself provides arbitration. Messages always flow from an 'appender' to a 'tailer' process, in one direction, with no flow control. The queue is fully contained with a standard directory, which should be otherwise empty. Queue files are machine independant and can be moved between machines.
+
+* An _appender_ process publishes payload to a queue directory, is given 64bit value 'index' of the write
+* Whilst a _tailer_ subscribes to messages in a queue directory, starting from 0 or provided index
+
+Multiple appenders, multiple tailers are supported, can be added and removed at will so long as all on
+the same machine. All writes resolve into total order which is preserved on replay. Message length must
+pack into 30 bits. Typical IPC latency 1us, depending on frequency of polling.
+
+Settings control how the 64-bit index value is interpreted, the typical _DAILY_ scheme is upper 32 bits
 are 'cycle', and bottom 32 bits are the 'seqnum'. Cycle values map to a particular queue file
-on disk, e.g. cycle+1970.01.01 -> yyyymmdd.cq4 . seqnum is the message position within the file.
-Queue file writers maintain an index structure within the queue file to allow resuming from a
+on disk, e.g. cycle+1970.01.01 -> yyyymmdd.cq4 . seqnum is the data message position within the file.
+Queue file writers maintain an index structure (also stored within the queue file) to allow resuming from a
 particular seqnum value with a reasonable upper bound on the number of disk seeks. Appenders
 sample the clock during a write to determine if the current cycle should be 'rolled' into the
 next, which sets the seqnum to zero and increments cycle, switching the filename in use.
-Queue files are machine independant and can be moved between machines.
 
 For performance and correctness, the queue files must be memory mapped. Kernel guarantees
 maps into process address space for the same file and offset and made with MAP_SHARED by
-multiple processes are mapped to the same physical pages, which allows zero-copy communication.
-Memory subsystem ensures correctness between CPUs and packages. To bound the mmap() to sensible
+multiple processes are mapped to the same _physical pages_, which allows shared memory primitives to be used.
+Memory subsystem ensures correctness between CPUs and packages. To bound the `mmap()` to sensible
 sizes, the file is mapped in chunks of 'blocksize' bytes. If a payload is to be written or
-deserialised larger than blocksize, it is extended and the mapping rebuilt. The kernel arranges
-dirty pages to be written to disk. Blocking I/O using read() and write() may see stale data
+deserialised larger than blocksize, blocksize it is extended and the mapping rebuilt. The kernel arranges
+dirty pages to be written to disk. Blocking I/O using `read()` and `write()` may see stale data
 however filesystem tools (cp) now typically use mmap.
 
 Messages are written to the queue with a four-byte header, containing the message size and two control
@@ -56,3 +59,22 @@ This repository contains command line C utilities, as well as language bindings 
 Planned:
 - python
 - nodejs
+
+## Issues
+The tool `shmmain` can replay, or follow, _DAILY_ queue files as writers proceed. So far as I can tell `shmmain` is compatable with the `InputMain` and `OutputMain` exmaples provided by Chronicle Software Ltd.
+
+If you can reproduce a segfault on an otherwise valid queuefile, examples would be happily recieved via. Github Issues.
+
+## Fuzzer & Coverage
+There is basic code coverage reporting using `clang`'s coverage suite, tested on a Mac. This uses shmmain to read and write some entries and shows line by line coverage. Try:
+
+    cd native
+    make coverage
+
+There is a very basic automated fuzzing tool (using (AFL)[http://lcamtuf.coredump.cx/afl/]), which follows a fuzzing script to read and write deterministic payload for a given number of bytes, then jumps the clock by an  amount, repeatedly. It writes the indices and seeds for the values written. The tool under test then replays the queuefiles and expects the same payload length, index and payload data to be output.
+
+     cd native
+     make fuzzer
+
+The fuzzing runs quite slowly, due to disk I/O, and also most of AFLs attempts to modify the fuzzing instruction file are invalid. Looks like changing it to a binary rather than ASCII file would help a great deal.
+
