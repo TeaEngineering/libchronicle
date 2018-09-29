@@ -71,7 +71,7 @@ There is basic code coverage reporting using `clang`'s coverage suite, tested on
     cd native
     make coverage
 
-There is a very basic automated fuzzing tool (using (AFL)[http://lcamtuf.coredump.cx/afl/]), which follows a fuzzing script to read and write deterministic payload for a given number of bytes, then jumps the clock by an  amount, repeatedly. It writes the indices and seeds for the values written. The tool under test then replays the queuefiles and expects the same payload length, index and payload data to be output.
+There is a very basic automated fuzzing tool (using [AFL - American Fuzzy Lop](http://lcamtuf.coredump.cx/afl/)), which follows a fuzzing script to read and write deterministic payload for a given number of bytes, then jumps the clock by an  amount, repeatedly. It writes the indices and seeds for the values written. The tool under test then replays the queuefiles and expects the same payload length, index and payload data to be output.
 
      cd native
      make fuzzer
