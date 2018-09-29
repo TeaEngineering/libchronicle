@@ -1,3 +1,17 @@
+// Copyright 2018 Tea Engineering Ltd.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #define _GNU_SOURCE
 
 #define __STDC_FORMAT_MACROS
@@ -19,9 +33,9 @@
 #include "wire.h"
 
 /**
- * Implementation notes - see main docs in native/demo/shm.q
- * This code is not reentrant, but there is only one kx main thread, so this is not a problem.
- * Should not be used by q slave threads without external locking.
+ * Implementation notes
+ * This code is not reentrant, but there is only one main thread, so this is not a problem.
+ * Should not be used by additional threads without external locking.
  * Multiple processes can append and tail from a queue concurrently, and one process
  * may read or write from multiple queues.
  *
