@@ -1,9 +1,9 @@
 
-## Shared-memory communication using Chronicle's chronocle-queue protocol
+## Shared-memory communication using Chronicle's chronicle-queue protocol
 
-[OpenHFT](https://github.com/OpenHFT) aka. [Chronicle Software Ltd.](https://chronicle.software/) provide an open-source Java '[Chronocle Queue](https://github.com/OpenHFT/Chronicle-Queue)' ipc library. This project is an unaffiliated, mostly-compatible, open source implementation in the C-programming language, with bindings to other non-JVM languages. To differentiate I refer to OpenHFTs implementation capitalised as 'Chronicle Queue', and the underlying procotol itself chronicle-queue, and this implementation as `libchronicle`.
+[OpenHFT](https://github.com/OpenHFT) aka. [Chronicle Software Ltd.](https://chronicle.software/) provide an open-source Java '[Chronicle Queue](https://github.com/OpenHFT/Chronicle-Queue)' ipc library. This project is an unaffiliated, mostly-compatible, open source implementation in the C-programming language, with bindings to other non-JVM languages. To differentiate I refer to OpenHFTs implementation capitalised as 'Chronicle Queue', and the underlying procotol itself chronicle-queue, and this implementation as `libchronicle`.
 
-## Documenting the chronicale-queue format
+## Documenting the chronicle-queue format
 The format of the queue-files containing your data, the shared memory protocol, and the safe ordering of queuefile maintenance is currently implementation defined. One hope is that this project will change that!
 
 A chronicle-queue has no single controlling broker process, the operating system provides persistence and hardware itself provides arbitration. Messages always flow from an 'appender' to a 'tailer' process, in one direction, with no flow control. The queue is fully contained with a standard directory, which should be otherwise empty. Queue files are machine independant and can be moved between machines.
