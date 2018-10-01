@@ -28,12 +28,12 @@ maps into process address space for the same file and offset and made with MAP_S
 multiple processes are mapped to the same _physical pages_, which allows shared memory primitives to be used.
 Memory subsystem ensures correctness between CPUs and packages. To bound the `mmap()` to sensible
 sizes, the file is mapped in chunks of 'blocksize' bytes. If a payload is to be written or
-deserialised larger than blocksize, blocksize it is extended and the mapping rebuilt. The kernel arranges
+deserialised larger than blocksize, blocksize is doubled and the mmap mapping rebuilt. The kernel arranges
 dirty pages to be written to disk. Blocking I/O using `read()` and `write()` may see stale data
 however filesystem tools (cp) now typically use mmap.
 
 Messages are written to the queue with a four-byte header, containing the message size and two control
-bit. Writers arbitrate using compare-and-set operations (lock; cmpxchgl) on these four bytes to
+bits. Writers arbitrate using compare-and-set operations (`lock; cmpxchgl`) on these four bytes to
 determine who takes the write lock:
 
     bits[0-29] 30  31  meaning                    shmipc.c constant
