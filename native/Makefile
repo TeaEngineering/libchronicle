@@ -60,7 +60,8 @@ fuzz: $(ODIR)/shmmain.fuzz
 	afl-fuzz -i test/fuzz_input -o test/fuzz_output $(ODIR)/shmmain.fuzz -F - :../java/out
 
 $(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
-	/home/jonathan/dev/git/AFL -o $@ $< $(CFLAGS) -g -O0
+	/usr/local/Cellar/afl-fuzz/2.52b/bin/afl-clang -o $@ $< $(CFLAGS) -g -O0
+
 
 .PHONY: clean grind coverage syms fuzz
 
