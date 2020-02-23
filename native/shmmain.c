@@ -12,9 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <shmipc.c>
 #include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+
+#include "k.h"
+#include "shmipc.h"
 #include "mock_k.h"
 
 // This is a stand-alone tool for replaying a queue for use with valgrind etc that are tricky to
@@ -142,9 +150,23 @@ int main(const int argc, char **argv) {
 	}
 
 	// what follows is translated q calls from shmipc.q
+	K parser_type = kss(kxflag ? "kx" : "text");
 	K dir = kss(argv[optind]);
-	K parser = kss(kxflag ? "kx" : "text");
-	per(shmipc_init(dir, parser));
+	parsedata_f parser;
+	appenddata_f appender;
+	encodecheck_f encoder;
+    if (strncmp(parser_type->s, "text", parser_type->n) == 0) {
+        parser = &parse_data_text;
+        appender = &append_data_text;
+        encoder = &append_check_text;
+    } else if (strncmp(parser_type->s, "kx", parser_type->n) == 0) {
+        parser = &parse_data_kx;
+        appender = &append_data_kx;
+        encoder = &append_check_kx;
+    } else {
+        return krr("bad format: supports `kx and `text");
+    }
+	per(shmipc_init(dir, parser, appender, encoder));
 
 	K cb = dl(&printxy, 2);
 	K kindex = kj(index);
@@ -244,7 +266,7 @@ int main(const int argc, char **argv) {
 	per(shmipc_close(dir));
 
 	r0(dir);
-	r0(parser);
+	r0(parser_type);
 	r0(cb);
 	r0(kindex);
 
