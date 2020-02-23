@@ -1,2 +1,4 @@
 .DS_Store
 native/k.h
+native/obj
+.vscode

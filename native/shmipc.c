@@ -29,7 +29,9 @@
 #include <glob.h>
 #include <time.h>
 
+#include "shmipc.h"
 #include "k.h"
+#include "mock_k.h"
 #include "wire.h"
 
 /**
@@ -260,13 +262,12 @@ int dispatch_callback(tailer_t* tailer, uint64_t index, K obj) {
 int parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
     if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
-
     // prep args and fire callback
     if (tailer->callback && index > tailer->dispatch_after) {
         K msg = ktn(KC, lim); // don't free this, handed over to q interp
         memcpy((char*)msg->G0, base, lim);
         return dispatch_callback(tailer, index, msg);
-    }
+    } 
     return 0;
 }
 
@@ -317,17 +318,15 @@ K append_check_kx(queue_t* queue, K msg) {
     return r;
 }
 
-K shmipc_init(K dir, K parser) {
+
+K shmipc_init(K dir, parsedata_f* parser, appenddata_f* appender, encodecheck_f* encoder) {
     if (dir->t != -KS) return krr("dir is not symbol");
     if (dir->s[0] != ':') return krr("dir is not symbol handle (starts with :)");
-    if (parser->t != -KS) return krr("parser is not symbol");
 
     debug = getenv("SHMIPC_DEBUG");
     wire_trace = getenv("SHMIPC_WIRETRACE");
 
     pid_header = (getpid() & HD_MASK_LENGTH);
-
-    printf("shmipc: opening dir %s format %s\n", dir->s, parser->s);
 
     // check if queue already open
     queue_t* queue = queue_head;
@@ -417,18 +416,9 @@ K shmipc_init(K dir, K parser) {
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
 
     // verify user-specified parser for data segments
-    if (strncmp(parser->s, "text", parser->n) == 0) {
-        queue->parser = &parse_data_text;
-        queue->encoder = &append_data_text;
-        queue->encodecheck = &append_check_text;
-    } else if (strncmp(parser->s, "kx", parser->n) == 0) {
-        queue->parser = &parse_data_kx;
-        queue->encoder = &append_data_kx;
-        queue->encodecheck = &append_check_kx;
-    } else {
-        return krr("bad format: supports `kx and `text");
-    }
-    if (debug) printf("shmipc: format set to %.*s\n", (int)parser->n, parser->s);
+    queue->parser = parser;
+    queue->encoder = appender;
+    queue->encodecheck = encoder;
 
     // Good to use
     queue->next = queue_head;
