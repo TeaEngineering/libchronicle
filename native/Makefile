@@ -25,6 +25,7 @@ all: $(ODIR)/mock_k.o $(ODIR)/shmipc.o $(ODIR)/shmmain $(ODIR)/libocamlshmipc.so
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
 
+
 $(ODIR)/mock_k.o: mock_k.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(CDFLAGS)
 

@@ -261,7 +261,7 @@ int dispatch_callback(tailer_t* tailer, uint64_t index, K obj) {
 
 int parse_data_text(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
-    if (debug) printf(" pdt text: %" PRIu64 " '%.*s'\n", index, lim, base);
+    if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
     // prep args and fire callback
     if (tailer->callback && index > tailer->dispatch_after) {
         K msg = ktn(KC, lim); // don't free this, handed over to q interp
