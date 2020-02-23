@@ -6,8 +6,8 @@ detected_OS := $(shell uname -s)
 
 IDIR=.
 CC=gcc
-CFLAGS=-DKXVER=3 -fPIC -I$(IDIR) -Wall
-CDFLAGS=-shared
+CFLAGS=-DKXVER=3 -fPIC -I$(IDIR) -Wall -g3 -gdwarf -g2
+#CDFLAGS=-shared
 ifeq ($(detected_OS),Darwin)  # Mac OS X
     CDFLAGS += -undefined dynamic_lookup
 endif
@@ -17,18 +17,22 @@ endif
 
 ODIR=obj
 LIBS=-lm
-DEPS = k.h wire.h
+DEPS=k.h wire.h mock_k.h shmipc.h
+OBJECTS=$(ODIR)/shmipc.o $(ODIR)/mock_k.o
 
-all: obj/hpet.so obj/shmipc.so obj/shmmain
+all: $(ODIR)/mock.o $(ODIR)/shmipc.o $(ODIR)/shmmain
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
 
-$(ODIR)/%.so: %.c $(DEPS)
-	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
+$(ODIR)/mock_k.o: mock_k.c $(DEPS)
+	$(CC) -c -o $@ $< $(CFLAGS) $(CDFLAGS)
 
-$(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
-	$(CC) -o $@ $< $(CFLAGS) -g -O0
+$(ODIR)/shmipc.o: shmipc.c $(ODIR)/mock_k.o $(DEPS)
+	$(CC) -c -o $@ $< mock_k.o $(CFLAGS) $(CDFLAGS)
+
+$(ODIR)/shmmain: shmmain.c $(DEPS) $(OBJECTS)
+	$(CC) -o $@ $< $(OBJECTS) $(CFLAGS) -g -O0
 
 coverage: obj/shmcov
 	obj/shmcov -v -a WORLD :demo/stress
