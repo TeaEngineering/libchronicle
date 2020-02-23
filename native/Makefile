@@ -20,7 +20,7 @@ LIBS=-lm
 DEPS=k.h wire.h mock_k.h shmipc.h
 OBJECTS=$(ODIR)/shmipc.o $(ODIR)/mock_k.o
 
-all: $(ODIR)/mock_k.o $(ODIR)/shmipc.o $(ODIR)/shmmain
+all: $(ODIR)/mock_k.o $(ODIR)/shmipc.o $(ODIR)/shmmain $(ODIR)/libocamlshmipc.so $(ODIR)/ocamlshmipcmain
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
@@ -32,6 +32,12 @@ $(ODIR)/shmipc.o: shmipc.c $(ODIR)/mock_k.o $(DEPS)
 	$(CC) -c -o $@ $< $(ODIR)/mock_k.o $(CFLAGS) $(CDFLAGS)
 
 $(ODIR)/shmmain: shmmain.c $(DEPS) $(OBJECTS)
+	$(CC) -o $@ $< $(OBJECTS) $(CFLAGS) -g -O0
+
+$(ODIR)/libocamlshmipc.so: ocamlshmipc.c $(OBJECTS)
+	$(CC) -shared -o $@ $< $(OBJECTS) $(CFLAGS) -g -O0
+
+$(ODIR)/ocamlshmipcmain: ocamlshmipcmain.c $(DEPS) $(OBJECTS)
 	$(CC) -o $@ $< $(OBJECTS) $(CFLAGS) -g -O0
 
 coverage: obj/shmcov
@@ -54,7 +60,7 @@ fuzz: $(ODIR)/shmmain.fuzz
 	afl-fuzz -i test/fuzz_input -o test/fuzz_output $(ODIR)/shmmain.fuzz -F - :../java/out
 
 $(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
-	/usr/local/Cellar/afl-fuzz/2.52b/bin/afl-clang -o $@ $< $(CFLAGS) -g -O0
+	/home/jonathan/dev/git/AFL -o $@ $< $(CFLAGS) -g -O0
 
 .PHONY: clean grind coverage syms fuzz
 
