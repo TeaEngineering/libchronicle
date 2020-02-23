@@ -22,6 +22,7 @@
 
 #include "k.h"
 #include "shmipc.h"
+#include "mock_k.h"
 
 // This is a stand-alone tool for replaying a queue for use with valgrind etc that are tricky to
 // operate within KDB, e.g. with

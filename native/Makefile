@@ -20,7 +20,7 @@ LIBS=-lm
 DEPS=k.h wire.h mock_k.h shmipc.h
 OBJECTS=$(ODIR)/shmipc.o $(ODIR)/mock_k.o
 
-all: $(ODIR)/mock.o $(ODIR)/shmipc.o $(ODIR)/shmmain
+all: $(ODIR)/mock_k.o $(ODIR)/shmipc.o $(ODIR)/shmmain
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
@@ -29,7 +29,7 @@ $(ODIR)/mock_k.o: mock_k.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(CDFLAGS)
 
 $(ODIR)/shmipc.o: shmipc.c $(ODIR)/mock_k.o $(DEPS)
-	$(CC) -c -o $@ $< mock_k.o $(CFLAGS) $(CDFLAGS)
+	$(CC) -c -o $@ $< $(ODIR)/mock_k.o $(CFLAGS) $(CDFLAGS)
 
 $(ODIR)/shmmain: shmmain.c $(DEPS) $(OBJECTS)
 	$(CC) -o $@ $< $(OBJECTS) $(CFLAGS) -g -O0
