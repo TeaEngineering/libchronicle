@@ -59,7 +59,7 @@ K kss(const char* ss) {
     r->s = (char*)ss;
     return r;
 }
-K dl(void* fnptr, int n) {
+K dl(void* fnptr, long long n) {
     K r = ktn(100,0);
     r->s = fnptr;
     r->a = n;
