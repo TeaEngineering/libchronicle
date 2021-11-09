@@ -8,7 +8,7 @@ The format of the chronicle-queue files containing your data, the shared memory 
 
 A chronicle-queue has no single controlling broker process, the operating system provides persistence and hardware itself provides arbitration. Messages always flow from an 'appender' to a 'tailer' process, in one direction, with no flow control. The queue is fully contained with a standard file system directory, which should be otherwise empty. Queue files are machine independant and can be moved between machines.
 
-* An _appender_ process publishes payload to a queue directory, is given 64bit value 'index' of the write
+* An _appender_ process writes messages to a queue directory, is given 64bit value 'index' of the write
 * Whilst a _tailer_ subscribes to messages in a queue directory, starting from 0 or provided index
 
 Multiple appenders, multiple tailers are supported, can be added and removed at will so long as all on

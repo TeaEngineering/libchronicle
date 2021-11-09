@@ -1,4 +1,4 @@
-// Copyright 2018 Tea Engineering Ltd.
+// Copyright 2021 Tea Engineering Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,9 +17,9 @@
 #include <ctype.h>
 #include "mock_k.h"
 
-// This is a stand-alone tool for replaying a queue for use with valgrind etc that are tricky to
-// operate within KDB, e.g. with
-// valgrind --leak-check=full -v ./native/obj/shmmain :java/queue
+// This is a stand-alone tool for replaying a queue, and optionally writing to it.
+
+// globals needed by callbacks
 int print_data = 0;
 
 K printxy(K x, K y) {
@@ -42,30 +42,26 @@ K kfrom_c_str(const char* s) { // k symbol from string?
 int main(const int argc, char **argv) {
 	int c;
 	opterr = 0;
-	int kxflag = 0;
 	int verboseflag = 0;
-	int pollflag = 0;
+	int followflag = 0;
 	char* append = NULL;
 	uint64_t index = 0;
 
-	while ((c = getopt(argc, argv, "kdmi:va:p")) != -1)
+	while ((c = getopt(argc, argv, "dmi:va:f")) != -1)
 	switch (c) {
 		case 'd':
 			print_data = 1;
 			break;
-		case 'k':
-			kxflag = 1;
+		case 'i':
 			break;
 		case 'v':
 			verboseflag = 1;
 			break;
-		case 'i':
-			break;
 		case 'a':
 			append = optarg;
 			break;
-		case 'p':
-			pollflag = 1;
+		case 'f':
+			followflag = 1;
 			break;
 		case '?':
 			fprintf(stderr, "Unknown option `-%c'.\n", optopt);
@@ -76,20 +72,25 @@ int main(const int argc, char **argv) {
 	}
 
 	if (optind + 1 > argc) {
-		printf("Missing mandatory argument.\n Expected: %s [-k] [-d] [-m] [-i INDEX] [-v] [-a text] [-p] :queue\n", argv[0]);
-		printf("  -k expect kx format queue\n");
+		printf("Missing mandatory argument.\n Expected: %s [-d] [-m] [-i INDEX] [-v] [-a text] [-f] QUEUE\n", argv[0]);
 		printf("  -d print data\n");
 		printf("  -m print metadata\n");
 		printf("  -i INDEX resume from index\n");
 		printf("  -v verbose mode\n");
 		printf("  -a TEXT write value text\n");
-		printf("  -p poll queue (rather than exit)\n");
+		printf("  -f follow queue for more entries (rather than exit)\n");
+		printf("\n");
+		printf("shmmain opens the chronicle-queue directory QUEUE and plays all messages from INDEX\n");
+		printf("setting -d -m -v vary the amount of printing that occurs during this\n");
+		printf("once the end of the queue is reached, if append (-a TEXT) is set, we will write a new\n");
+		printf("message containing the value TEXT.\n");
+		printf("if follow (-f) is set, will we continue to poll for (and print) new messages, else exit.\n");
 		exit(1);
 	}
 
 	// what follows is translated q calls from shmipc.q
 	K dir = kss(argv[optind]);
-	K parser = kss(kxflag ? "kx" : "text");
+	K parser = kss("text");
 	per(shmipc_init(dir, parser));
 
 	K cb = dl(&printxy, 2);
@@ -108,7 +109,7 @@ int main(const int argc, char **argv) {
 		r0(msg);
 	}
 
-	while (pollflag) {
+	while (followflag) {
 		usleep(500*1000);
 		per(shmipc_peek(dir));
 	}
