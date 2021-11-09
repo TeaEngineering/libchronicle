@@ -19,13 +19,16 @@ ODIR=obj
 LIBS=-lm
 DEPS = k.h wire.h
 
-all: obj/hpet.so obj/shmipc.so obj/shmmain
+all: obj/hpet.so obj/shmipc.so obj/shmmain obj/fuzzmain
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
 
 $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
+
+$(ODIR)/fuzzmain: fuzzmain.c shmipc.c mock_k.h $(DEPS)
+	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
 $(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
