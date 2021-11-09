@@ -15,13 +15,14 @@ public class InputMain {
         SingleChronicleQueue queue = SingleChronicleQueueBuilder.binary(path).build();
         ExcerptAppender appender = queue.acquireAppender();
         Scanner read = new Scanner(System.in);
+        System.out.println("type something");
         while (true) {
-            System.out.println("type something");
             String line = read.nextLine();
             if (line.isEmpty())
                 break;
             appender.writeText(line);
+            System.out.println("[" + appender.lastIndexAppended() + "] " + line);
         }
-        System.out.println("... bye.");
+        System.out.println("Input stream finished");
     }
 }

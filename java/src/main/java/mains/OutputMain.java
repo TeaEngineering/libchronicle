@@ -15,12 +15,14 @@ public class OutputMain {
         ExcerptTailer tailer = queue.createTailer();
 
         while (true) {
+            long index = tailer.index();
             String text = tailer.readText();
-            if (text == null)
+            if (text == null) {
                 Jvm.pause(10);
-            else
-                System.out.println(text);
-
+            } else {
+                System.out.println("[" + index + "] " + text);
+            }
         }
+
     }
 }

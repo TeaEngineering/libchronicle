@@ -6,16 +6,30 @@ https://github.com/OpenHFT/Chronicle-Queue-Sample/tree/master/simple-input/src/m
 
 To run an example appender:
 
-    $ brew install maven
-    $ mvn dependency:copy-dependencies
-    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-4.6.109.jar mains.InputMain
+    (mac)    $ brew install maven
+    (ubuntu) $ sudo apt-get install maven
 
+Then
+
+    $ mvn dependency:copy-dependencies
+    $ mvn package
+    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.InputMain < sample.input
+    type something
+    [81346680586240] one
+    [81346680586241] two
+    [81346680586242] three
+    Input stream finished
+    $
+
+InputMain will create a directory called 'queue' in the current directory containing a queuefile (`*.cq4`) and a `metadata.cq4t` file. The file will contain three messages in the current cycle.
 
 For the tailer:
 
-    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-4.6.109.jar mains.OutputMain
-
-
-The appender will create a directory called 'queue' in the current directory containing a queuefile (`*.cq4`) and a `directory-listing.cq4t` file.
+    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.OutputMain
+    ....
+    [81346680586240] one
+    [81346680586241] two
+    [81346680586242] three
+    $
 
 You can test basic interoperability
