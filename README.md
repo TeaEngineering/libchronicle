@@ -15,9 +15,9 @@ Multiple appenders, multiple tailers are supported, can be added and removed at 
 the same machine. All writes resolve into total order which is preserved on replay. Message length must
 pack into 30 bits, so the maximum size of any individually sequenced payload is `(1<<31)-1` bytes, or 1023 Mb. Typical IPC latency 1us, depending on frequency of polling.
 
-Each persisted message is identified by a sequential 64-bit index value. Settings control how the 64-bit index value is interpreted, and Chronicle Queue ships with several built-in schemes that split the 64-bit value into two parts, upper bits are known as the 'cycle' and bottom 32 bits are the 'seqnum'. Cycle values map to a particular queuefile on disk, whilst seqnum is the data message position within the file.
+Each persisted message is identified by a sequential 64-bit index value. Settings control how the 64-bit index value is interpreted, and Chronicle Queue ships with several built-in schemes that split the 64-bit value into two parts at a particular bit position. Upper bits are known as the 'cycle' and the remainder are the 'seqnum'. Cycle values map to a particular queuefile on disk, whilst seqnum indexes the data message within the file.
 
-The popular _DAILY_ scheme splits the 64-bit index into upper 32 bit cycle, bottom 32 bits are 'seqnum', and the filenames are derived as  `cycle+1970.01.01` such as `yyyymmdd.cq4`. It is critical for the writers and readers to agree on the scheme in use, therefore the scheme is written to the header in each queuefile.
+The popular _DAILY_ scheme splits the 64-bit index in half, into upper 32 bit cycle and bottom 32 bit are 'seqnum'. The filenames are derived as  `cycle+1970.01.01` formatted as `${yyyymmdd}.cq4`. It is critical for the writers and readers to agree on the scheme in use, therefore the scheme is written to the header in each queuefile.
 
 Queue file writers maintain an index structure (also stored within the queue file) to allow resuming from a
 particular seqnum value with a reasonable upper bound on the number of disk seeks. Appenders
@@ -27,6 +27,7 @@ next, which sets the seqnum to zero and increments cycle, which jumps the calcul
 For performance and correctness, the queue files must be memory mapped. Kernel guarantees
 maps into process address space for the same file and offset and made with MAP_SHARED by
 multiple processes are mapped to the same _physical pages_, which allows shared memory primitives to be used for inter-process communication.
+
 Memory subsystem ensures correctness between CPUs and packages. To bound the `mmap()` to sensible
 sizes, the file is mapped in chunks of 'blocksize' bytes. If a payload is to be written or
 deserialised larger than blocksize, blocksize is doubled and the mmap mapping rebuilt. The kernel arranges
