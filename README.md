@@ -15,17 +15,18 @@ Multiple appenders, multiple tailers are supported, can be added and removed at 
 the same machine. All writes resolve into total order which is preserved on replay. Message length must
 pack into 30 bits, so the maximum size of any individually sequenced payload is `(1<<31)-1` bytes, or 1023 Mb. Typical IPC latency 1us, depending on frequency of polling.
 
-Each persisted message is identified by a sequential 64-bit index value. Settings control how the 64-bit index value is interpreted, and Chronicle Queue ships with several built-in schemes that split the 64-bit value into two parts at a particular bit position. Upper bits are known as the 'cycle' and the remainder are the 'seqnum'. Cycle values map to a particular queuefile on disk, whilst seqnum indexes the data message within the file.
+Each persisted message is identified by a sequential 64-bit index value. Settings control how the 64-bit index value is interpreted, and Chronicle Queue ships with several built-in schemes (`RollCycles`) that split the 64-bit value into two parts at a particular bit position. Upper bits are known as the 'cycle' and the remainder are the 'seqnum'. Cycle values map to a particular queuefile on disk, whilst seqnum indexes the data message within the file.
 
 The popular _DAILY_ scheme splits the 64-bit index in half, into upper 32 bit cycle and bottom 32 bit are 'seqnum'. The filenames are derived as  `cycle+1970.01.01` formatted as `${yyyymmdd}.cq4`. It is critical for the writers and readers to agree on the scheme in use, therefore the scheme is written to the header in each queuefile.
 
-Queue file writers maintain an index structure (also stored within the queue file) to allow resuming from a
-particular seqnum value with a reasonable upper bound on the number of disk seeks. Appenders
-sample the clock during a write to determine if the current cycle should be 'rolled' into the
-next, which sets the seqnum to zero and increments cycle, which jumps the calculated index forward and switches the filename in use.
+Queue file writers maintain a double-index structure (also stored within the queue file) to allow resuming from a
+particular seqnum value with a reasonable upper bound on the number of disk seeks. The first Metadata message is an array of byte positions within the file of subsequent index pages. Each of those is a Metadata message containing an array (of the same length) containing byte positions of future data messages. The _DAILY_ scheme indexes every 64th message and has 8000 entries per index page. Note that the RollCycle configures the indexing layout.
+
+Appenders sample the clock during a write to determine if the current cycle should be 'rolled' into the
+next. Changing cycle clears seqnum to zero, which causes the index value to "jump" correspondingly and switches the filename in use. A jump to the next cycle also occurs when the indexing structure is full, ie. all entries in the root index point to index pages that are themselves full.
 
 For performance and correctness, the queue files must be memory mapped. Kernel guarantees
-maps into process address space for the same file and offset and made with MAP_SHARED by
+maps into process address space for the same file and offset and made with `MAP_SHARED` by
 multiple processes are mapped to the same _physical pages_, which allows shared memory primitives to be used for inter-process communication.
 
 Memory subsystem ensures correctness between CPUs and packages. To bound the `mmap()` to sensible
