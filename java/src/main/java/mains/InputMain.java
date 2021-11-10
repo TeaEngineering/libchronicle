@@ -11,7 +11,11 @@ import java.util.Scanner;
  */
 public class InputMain {
     public static void main(String[] args) {
-        String path = "queue";
+        if (args.length < 1) {
+            System.err.println("InputMain QUEUE");
+            System.exit(1);
+        }
+        String path = args[0];
         SingleChronicleQueue queue = SingleChronicleQueueBuilder.binary(path).build();
         ExcerptAppender appender = queue.acquireAppender();
         Scanner read = new Scanner(System.in);

@@ -10,7 +10,11 @@ import net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder;
  */
 public class OutputMain {
     public static void main(String[] args) {
-        String path = "queue";
+        if (args.length < 1) {
+            System.err.println("OutputMain QUEUE");
+            System.exit(1);
+        }
+        String path = args[0];
         SingleChronicleQueue queue = SingleChronicleQueueBuilder.binary(path).build();
         ExcerptTailer tailer = queue.createTailer();
 
