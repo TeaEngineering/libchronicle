@@ -53,6 +53,7 @@ int main(const int argc, char **argv) {
 			print_data = 1;
 			break;
 		case 'i':
+			index = strtoull(optarg, NULL, 0);
 			break;
 		case 'v':
 			verboseflag = 1;
