@@ -1081,7 +1081,7 @@ K shmipc_tailer(K dir, K cb, K kindex) {
     if (tailer == NULL) return krr("tm fail");
     bzero(tailer, sizeof(tailer_t));
 
-    tailer->dispatch_after = index;
+    tailer->dispatch_after = index - 1;
     tailer->qf_index = index & ~queue->seqnum_mask; // start replay from first entry in file
     tailer->callback = cb;
     tailer->state = 5;
