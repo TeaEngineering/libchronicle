@@ -24,7 +24,7 @@ int print_data = 0;
 
 K printxy(K x, K y) {
 	if (print_data) {
-		printf("%llu: ", x->j);
+		printf("[%llu] ", x->j);
 		if (y->t == KC)
 			fwrite(kC(y), sizeof(char), y->n, stdout);
 		printf("\n");
@@ -64,10 +64,10 @@ int main(const int argc, char **argv) {
 			followflag = 1;
 			break;
 		case '?':
-			fprintf(stderr, "Unknown option `-%c'.\n", optopt);
+			fprintf(stderr, "Option '-%c' missing argument\n", optopt);
 			exit(2);
 		default:
-			fprintf(stderr, "%c??", c);
+			fprintf(stderr, "Unknown option '%c'\n", c);
 			exit(3);
 	}
 
