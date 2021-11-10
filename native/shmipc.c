@@ -340,6 +340,7 @@ K shmipc_init(K dir, K parser) {
     queue = malloc(sizeof(queue_t));
     if (queue == NULL) return krr("m fail");
     bzero(queue, sizeof(queue_t));
+    queue->roll_epoch = -1;
 
     // unsafe to use ref to q symbol here (seen it go out of scope), so dup
     queue->dirname = strdup(&dir->s[1]);
@@ -403,11 +404,12 @@ K shmipc_init(K dir, K parser) {
     munmap(queuefile_buf, queuefile_extent);
     close(queuefile_fd);
 
-    // check we loaded some rollover settings from queuefile
-    if (queue->roll_length == 0) krr("qfi roll_length fail");
-    if (queue->index_count == 0) krr("qfi index_count fail");
-    if (queue->index_spacing == 0) krr("qfi index_spacing fail");
-    if (queue->roll_format == 0) krr("qfi roll_format fail");
+    // check we loaded some rollover settings from queuefile or metadata
+    if (queue->roll_length == 0) return krr("qfi roll_length fail");
+    if (queue->index_count == 0) return krr("qfi index_count fail");
+    if (queue->index_spacing == 0) return krr("qfi index_spacing fail");
+    if (queue->roll_format == 0) return krr("qfi roll_format fail");
+    if (queue->roll_epoch == -1) return krr("qfi roll_epoch fail");
 
     // TODO check yyyymmdd
     queue->cycle2file_fn = &get_cycle_fn_yyyymmdd;
