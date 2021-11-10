@@ -825,9 +825,9 @@ K shmipc_debug(K x) {
 void shmipc_debug_tailer(queue_t* queue, tailer_t* tailer) {
     const char* state_text = tailer_state_messages[tailer->state];
     printf("    callback         %p\n",   tailer->callback);
-    int cycle = tailer->dispatch_after >> queue->cycle_shift;
-    int seqnum = tailer->dispatch_after & queue->seqnum_mask;
-    printf("    dispatch_after   %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->dispatch_after, cycle, seqnum);
+    uint cycle = tailer->dispatch_after >> queue->cycle_shift;
+    uint seqnum = tailer->dispatch_after & queue->seqnum_mask;
+    printf("    dispatch_after   %" PRIu64 " (cycle %u, seqnum %u)\n", tailer->dispatch_after, cycle, seqnum);
     printf("    state            %d - %s\n", tailer->state, state_text);
     printf("    qf_fn            %s\n",   tailer->qf_fn);
     printf("    qf_fd            %d\n",   tailer->qf_fd);
@@ -835,7 +835,7 @@ void shmipc_debug_tailer(queue_t* queue, tailer_t* tailer) {
     printf("    qf_tip           %" PRIu64 "\n", tailer->qf_tip);
     cycle = tailer->qf_index >> queue->cycle_shift;
     seqnum = tailer->qf_index & queue->seqnum_mask;
-    printf("    qf_index         %" PRIu64 " (cycle %d, seqnum %d)\n", tailer->qf_index, cycle, seqnum);
+    printf("    qf_index         %" PRIu64 " (cycle %u, seqnum %u)\n", tailer->qf_index, cycle, seqnum);
     printf("    qf_buf           %p\n",   tailer->qf_buf);
     printf("      extent         %p\n",   tailer->qf_buf+tailer->qf_mmapsz);
     printf("    qf_mmapsz        %" PRIx64 "\n", tailer->qf_mmapsz);
