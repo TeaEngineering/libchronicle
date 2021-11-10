@@ -25,11 +25,23 @@ InputMain will create a directory called 'queue' in the current directory contai
 
 For the tailer:
 
-    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.OutputMain
-    ....
+    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.OutputMain 2>/dev/null
     [81346680586240] one
     [81346680586241] two
     [81346680586242] three
     $
 
-You can test basic interoperability
+### Interoperability
+
+Java write, libchronicle read:
+
+    $ make -C ../native
+    $ ../native/obj/shmmain :queue/ -d 2>/dev/null
+    [81346680586240] one
+    [81346680586241] two
+    [81346680586242] three
+    $
+
+libchronicle write, Java read:
+
+    $ ../native/obj/shmmain :queue/ -d -a HELLO
