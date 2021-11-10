@@ -127,7 +127,7 @@ void parse_wire(unsigned char* base, int lim, uint64_t index, wirecallbacks_t* c
                 break;
             case 0xA7: // INT64
                 memcpy(&padding64, p, sizeof(padding64));
-                if (wire_trace) printf(" Field %.*s = %" PRIu64 "\n", field_name_sz, field_name, padding64);
+                if (wire_trace) printf(" Field %.*s = %" PRIu64 " (uint64)\n", field_name_sz, field_name, padding64);
                 if (cbs->ptr_uint64) cbs->ptr_uint64(ev_name, ev_name_sz, p, cbs);
                 if (cbs->field_uint64) cbs->field_uint64(field_name, field_name_sz, padding64, cbs);
                 p += 8;

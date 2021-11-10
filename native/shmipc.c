@@ -136,6 +136,7 @@ typedef struct queue {
     char*             dirname;
     char*             hsymbolp;
     uint              blocksize;
+    uint8_t           version;
 
     // directory-listing.cq4t
     char*             dirlist_name;
@@ -228,6 +229,20 @@ char* get_cycle_fn_yyyymmdd(queue_t* queue, int cycle) {
     // tail of this buffer is overwritten by the strftime below
     int bufsz = asprintf(&buf, "%s/yyyymmdd.cq4", queue->dirname);
     strftime(buf+bufsz-12, 13, "%Y%m%d.cq4", &info);
+    return buf;
+}
+
+char* get_cycle_fn_yyyymmddF(queue_t* queue, int cycle) {
+    // TODO: replace with https://ideone.com/7BADb as gmtime_r leaks
+    char* buf;
+    // time_t aka long. seconds since midnight 1970
+    time_t rawtime = cycle * 60*60*24;
+    struct tm info;
+    gmtime_r(&rawtime, &info);
+
+    // tail of this buffer is overwritten by the strftime below
+    int bufsz = asprintf(&buf, "%s/yyyymmddF.cq4", queue->dirname);
+    strftime(buf+bufsz-13, 13, "%Y%m%dF.cq4", &info);
     return buf;
 }
 
@@ -367,54 +382,82 @@ K shmipc_init(K dir, K parser) {
         }
     }
 
-    // Can we map the directory-listing.cq4t file
+    // probe V4 - Can we map the directory-listing.cq4t file
     asprintf(&queue->dirlist_name, "%s/directory-listing.cq4t", queue->dirname);
     K x = ee(directory_listing_reopen(queue, O_RDONLY, PROT_READ));
     if (x && x->t == KERR && x->s) {
-        printf("shmipc: dir listing %p %s\n", x, x->s); return krr(x->s);
+        printf("shmipc: v4 dir listing %p %s\n", x, x->s);
+        free(queue->dirlist_name);
+        r0(x);
+    } else {
+        queue->version = 4;
     }
 
-    // read a 'queue' header from any one of the datafiles to get the
-    // rollover configuration. We don't know how to generate a filename from a cycle code
-    // yet, so this needs to use the directory listing.
-    int               queuefile_fd;
-    struct stat       queuefile_statbuf;
-    uint64_t          queuefile_extent;
-    unsigned char*    queuefile_buf;
-
-    char* fn = queue->queuefile_glob.gl_pathv[0];
-    // find size of dirlist and mmap
-    if ((queuefile_fd = open(fn, O_RDONLY)) < 0) {
-        return orr("qfi open");
+    // probe V5 - metadata.cq4t
+    asprintf(&queue->dirlist_name, "%s/metadata.cq4t", queue->dirname);
+    x = ee(directory_listing_reopen(queue, O_RDONLY, PROT_READ));
+    if (x && x->t == KERR && x->s) {
+        printf("shmipc: v5 dir listing %p %s\n", x, x->s);
+        free(queue->dirlist_name);
+        r0(x);
+    } else {
+        queue->version = 5;
     }
-    if (fstat(queuefile_fd, &queuefile_statbuf) < 0)
-        return krr("qfi fstat");
 
-    // only need the first block
-    queuefile_extent = queuefile_statbuf.st_size < queue->blocksize ? queuefile_statbuf.st_size : queue->blocksize;
+    if (queue->version == 4) {
+        // For v4, we need to read a 'queue' header from any one of the datafiles to get the
+        // rollover configuration. We don't know how to generate a filename from a cycle code
+        // yet, so this needs to use the directory listing.
+        int               queuefile_fd;
+        struct stat       queuefile_statbuf;
+        uint64_t          queuefile_extent;
+        unsigned char*    queuefile_buf;
 
-    if ((queuefile_buf = mmap(0, queuefile_extent, PROT_READ, MAP_SHARED, queuefile_fd, 0)) == MAP_FAILED)
-        return krr("qfi mmap fail");
+        char* fn = queue->queuefile_glob.gl_pathv[0];
+        // find size of dirlist and mmap
+        if ((queuefile_fd = open(fn, O_RDONLY)) < 0) {
+            return orr("qfi open");
+        }
+        if (fstat(queuefile_fd, &queuefile_statbuf) < 0)
+            return krr("qfi fstat");
 
-    // we don't need a data-parser at this stage as only need values from the header
-    if (debug) printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
-    parse_queuefile_meta(queuefile_buf, queuefile_extent, queue);
+        // only need the first block
+        queuefile_extent = queuefile_statbuf.st_size < queue->blocksize ? queuefile_statbuf.st_size : queue->blocksize;
 
-    // close queuefile
-    munmap(queuefile_buf, queuefile_extent);
-    close(queuefile_fd);
+        if ((queuefile_buf = mmap(0, queuefile_extent, PROT_READ, MAP_SHARED, queuefile_fd, 0)) == MAP_FAILED)
+            return krr("qfi mmap fail");
 
-    // check we loaded some rollover settings from queuefile or metadata
+        // we don't need a data-parser at this stage as only need values from the header
+        if (debug) printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
+        parse_queuefile_meta(queuefile_buf, queuefile_extent, queue);
+
+        // close queuefile
+        munmap(queuefile_buf, queuefile_extent);
+        close(queuefile_fd);
+    }
+
+    // check we loaded roll settings from queuefile or metadata
+    if (queue->version == 0) return krr("qfi version detect fail");
     if (queue->roll_length == 0) return krr("qfi roll_length fail");
-    if (queue->index_count == 0) return krr("qfi index_count fail");
-    if (queue->index_spacing == 0) return krr("qfi index_spacing fail");
     if (queue->roll_format == 0) return krr("qfi roll_format fail");
     if (queue->roll_epoch == -1) return krr("qfi roll_epoch fail");
 
+    // defer this until queuefile access
+    //if (queue->index_count == 0) return krr("qfi index_count fail");
+    //if (queue->index_spacing == 0) return krr("qfi index_spacing fail");
+
     // TODO check yyyymmdd
-    queue->cycle2file_fn = &get_cycle_fn_yyyymmdd;
-    queue->cycle_shift = 32;
-    queue->seqnum_mask = 0x00000000FFFFFFFF;
+    if (strcmp(queue->roll_format, "yyyyMMdd") == 0) {
+        queue->cycle2file_fn = &get_cycle_fn_yyyymmdd;
+        queue->cycle_shift = 32;
+        queue->seqnum_mask = 0x00000000FFFFFFFF;
+    } else if (strcmp(queue->roll_format, "yyyyMMdd'F'") == 0) {
+        queue->cycle2file_fn = &get_cycle_fn_yyyymmddF;
+        queue->cycle_shift = 32;
+        queue->seqnum_mask = 0x00000000FFFFFFFF;
+    } else {
+        return krr("unsupported roll_format");
+    }
     // TODO: Logic from RollCycles.java ensures rollover occurs before we run out of index2index pages?
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
 
@@ -527,9 +570,33 @@ void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t*
     }
 }
 
+void handle_dirlist_uint32(char* buf, int sz, uint32_t data, wirecallbacks_t* cbs){
+    queue_t* queue = (queue_t*)cbs->userdata;
+    if (strncmp(buf, "length", sz) == 0) {
+        if (debug) printf("  v5 roll_length set to %x\n", data);
+        queue->roll_length = data;
+    }
+}
+
+void handle_dirlist_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
+    queue_t* queue = (queue_t*)cbs->userdata;
+    if (strncmp(buf, "epoch", sz) == 0) {
+        queue->roll_epoch = data;
+    }
+}
+
+void handle_dirlist_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t* cbs) {
+    queue_t* queue = (queue_t*)cbs->userdata;
+    if (strncmp(buf, "format", sz) == 0) {
+        if (debug) printf("  v5 roll_format set to %.*s\n", dsz, data);
+        queue->roll_format = strndup(data, dsz);
+    }
+}
+
 void handle_qf_uint32(char* buf, int sz, uint32_t data, wirecallbacks_t* cbs){
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
+        if (debug) printf(" v4 roll_length set to %x\n", data);
         queue->roll_length = data;
     }
 }
@@ -538,6 +605,8 @@ void handle_qf_uint16(char* buf, int sz, uint16_t data, wirecallbacks_t* cbs) {
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "indexCount", sz) == 0) {
         queue->index_count = data;
+    } else if (strncmp(buf, "indexSpacing", sz) == 0) {
+        queue->index_spacing = data;
     }
 }
 
@@ -568,6 +637,10 @@ void parse_dirlist(queue_t* queue) {
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
+    hcbs.field_uint32 = &handle_dirlist_uint32;
+    hcbs.field_uint8 = &handle_dirlist_uint8;
+    hcbs.field_char = &handle_dirlist_text;
+    hcbs.userdata = queue;
     parse_queue_block(&base, &index, base+lim, &hcbs, &parse_wire_data, &cbs);
 }
 
@@ -794,6 +867,7 @@ K shmipc_debug(K x) {
     while (current != NULL) {
         printf(" handle              %s\n",   current->hsymbolp);
         printf("  blocksize          %x\n",   current->blocksize);
+        printf("  version            %d\n",   current->version);
         printf("  dirlist_name       %s\n",   current->dirlist_name);
         printf("  dirlist_fd         %d\n",   current->dirlist_fd);
         printf("  dirlist_sz         %" PRIu64 "\n", (uint64_t)current->dirlist_statbuf.st_size);
@@ -1019,7 +1093,7 @@ K shmipc_append_ts(K dir, K msg, K ms) {
             // we'll patch missing EOFs during our writes if we hold the lock. This will nudge on any
             // readers who haven't noticed the roll.
             if (appender->qf_index < queue->highest_cycle << queue->cycle_shift) {
-                printf("shmipc: got write lock, but about to write to queuefile < maxcycle, writing EOF.");
+                printf("shmipc: got write lock, but about to write to queuefile < maxcycle, writing EOF\n");
                 uint32_t header = HD_EOF;
                 memcpy(ptr, &header, sizeof(header));
                 continue; // retry write in next queuefile
