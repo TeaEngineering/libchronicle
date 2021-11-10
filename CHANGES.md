@@ -17,10 +17,11 @@ Chronicle Queue v5
   * format (text)
 * queue metatdata wire encoder changes:
   * `SCQSIndexing.indexSpacing` changes from `uint8` to `uint16`
-  *
+* a v5 queue with no data written can be a metadata.cq4t with no queue files (relax queuefile existance checks)
 * SingleChronicleQueueBuilder writeText() seems to be writing a one-byte prefix to the data
 
 
 Chronicle Queue v4
 ----
-* Everything
+* requires at least one queuefile to learn the roll scheme, although we do not know what the rollscheme is to find the queuefile, so bootstrap using filesystem glob
+

@@ -366,22 +366,6 @@ K shmipc_init(K dir, K parser) {
     if (stat(queue->dirname, &statbuf) != 0) return krr("stat fail");
     if (!S_ISDIR(statbuf.st_mode)) return krr("dir is not a directory");
 
-    // Does it contain some .cq4 files?
-    glob_t *g = &queue->queuefile_glob;
-    g->gl_offs = 0;
-
-    asprintf(&queue->queuefile_pattern, "%s/*.cq4", queue->dirname);
-    glob(queue->queuefile_pattern, GLOB_ERR, NULL, g);
-    if (g->gl_pathc < 1) {
-        return krr("no queue files - java run?");
-    }
-    if (debug) {
-        printf("shmipc: glob %zu queue files found\n", g->gl_pathc);
-        for (int i = 0; i < g->gl_pathc;i++) {
-            printf("   %s\n", g->gl_pathv[i]);
-        }
-    }
-
     // probe V4 - Can we map the directory-listing.cq4t file
     asprintf(&queue->dirlist_name, "%s/directory-listing.cq4t", queue->dirname);
     K x = ee(directory_listing_reopen(queue, O_RDONLY, PROT_READ));
@@ -404,17 +388,36 @@ K shmipc_init(K dir, K parser) {
         queue->version = 5;
     }
 
+    // Does queue dir contain some .cq4 files?
+    // for V5 it is OK to have empty directory
+    glob_t *g = &queue->queuefile_glob;
+    g->gl_offs = 0;
+
+    asprintf(&queue->queuefile_pattern, "%s/*.cq4", queue->dirname);
+    glob(queue->queuefile_pattern, GLOB_ERR, NULL, g);
+    if (debug) {
+        printf("shmipc: glob %zu queue files found\n", g->gl_pathc);
+        for (int i = 0; i < g->gl_pathc;i++) {
+            printf("   %s\n", g->gl_pathv[i]);
+        }
+    }
+
     if (queue->version == 4) {
         // For v4, we need to read a 'queue' header from any one of the datafiles to get the
         // rollover configuration. We don't know how to generate a filename from a cycle code
         // yet, so this needs to use the directory listing.
+
+        if (g->gl_pathc < 1) {
+            return krr("V4 and no queue files found so cannot initialise. Set SHMIPC_INIT_CREATE to allow queue creation");
+        }
+
         int               queuefile_fd;
         struct stat       queuefile_statbuf;
         uint64_t          queuefile_extent;
         unsigned char*    queuefile_buf;
 
         char* fn = queue->queuefile_glob.gl_pathv[0];
-        // find size of dirlist and mmap
+        // find length of queuefile and mmap
         if ((queuefile_fd = open(fn, O_RDONLY)) < 0) {
             return orr("qfi open");
         }
@@ -560,6 +563,7 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
 
 void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t* cbs) {
     // we are preserving *pointers* within the shared directory data page
+    // we keep the underlying mmap for life of queue
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "listing.highestCycle", sz) == 0) {
         queue->dirlist_fields.highest_cycle = dptr;
