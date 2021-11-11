@@ -52,9 +52,8 @@ of writes through to read visibility. Tailers need to use an 'mfence' between re
 and payload to ensure payload is not prematurely fetched and decoded before the working signal
 is clear. mfence used in this way stops both compiler re-ordering and cpu prefetch.
 
-The `directory-listing.cq4t` file is a simple counter of the min and max cycles, which is used
-to avoid probing the file system execessively with `stat` system calls during a reply and around the dateroll. It is memory-mapped to
-allow tailers to see cycle rolls in real time.
+The `directory-listing.cq4t` file (v4) or `metadata.cq4t` file (v5) is a simple counter of the min and max cycles, which is used
+to avoid probing the file system execessively with `stat` system calls during a reply and around the dateroll. It is memory-mapped into all appenders and tailers to see cycle rolls in real time.
 
 ## Bindings
 
@@ -64,7 +63,9 @@ Planned:
 - nodejs
 
 ## Issues
-The tool `shmmain` can replay, or follow, _DAILY_ queue files as writers proceed. So far as I can tell `shmmain` is compatable with the `InputMain` and `OutputMain` exmaples provided by Chronicle Software Ltd.
+The tool `shmmain` can replay, or follow, _DAILY_ or _DAILY_FAST_ queues files as writers proceed. So far as I can tell `shmmain` is compatable with the `InputMain` and `OutputMain` exmaples provided by Chronicle Software Ltd, with either v4 or v5 queues.
+
+It cannot yet use or append to index pages #1 or create a completely empty queue #15.
 
 If you can reproduce a segfault on an otherwise valid queuefile, examples would be happily recieved via. a Github Issue.
 
