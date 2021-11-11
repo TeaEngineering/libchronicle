@@ -19,6 +19,8 @@
 // as valgrind can't hook the individual allocations to record the stack.
 //
 
+#define KERR -128
+
 // globals
 int kxx_errno = 0;
 char* kxx_msg = NULL;
