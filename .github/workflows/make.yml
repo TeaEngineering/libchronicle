@@ -11,7 +11,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-
+    - name: Prep
+      shell: bash
+      run: sudo apt install libcmocka-dev
     - name: Build
       shell: bash
       run: make -C native
+    - name: Test
+      shell: bash
+      run: make -C native test

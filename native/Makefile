@@ -17,15 +17,23 @@ endif
 
 ODIR=obj
 LIBS=-lm
-DEPS = k.h wire.h
+DEPS=k.h wire.h
 
-all: obj/hpet.so obj/shmipc.so obj/shmmain obj/fuzzmain
+tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
+testsok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
+all: obj/hpet.so obj/shmmain obj/shmipc.so $(tests)
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
 
 $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
+
+%.to: %.c $(DEPS)
+	$(CC) -o $@ $< $(CFLAGS) -lcmocka
+
+%.tok: %.to
+	$< && touch $@
 
 $(ODIR)/fuzzmain: fuzzmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
@@ -55,8 +63,11 @@ fuzz: $(ODIR)/shmmain.fuzz
 $(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
 	/usr/local/Cellar/afl-fuzz/2.52b/bin/afl-clang -o $@ $< $(CFLAGS) -g -O0
 
-.PHONY: clean grind coverage syms fuzz
+.PHONY: clean grind coverage syms fuzz test
+
+test: $(testsok)
 
 clean:
 	rm -f *~ core $(INCDIR)/*~ default.prof*
 	rm -Rf $(ODIR)/*
+	rm -Rf test/*.to test/*.tok
