@@ -57,7 +57,7 @@ to avoid probing the file system execessively with `stat` system calls during a 
 
 ## Bindings
 
-This repository contains command line C utilities, as well as language bindings (.so+.q) for kdb.
+This repository contains command line C utilities, `shmmain` as well as language bindings `shmipc.so` for kdb.
 Planned:
 - python
 - nodejs
@@ -68,6 +68,15 @@ The tool `shmmain` can replay, or follow, _DAILY_ or _DAILY_FAST_ queues files a
 It cannot yet use or append to index pages #1 or create a completely empty queue #15.
 
 If you can reproduce a segfault on an otherwise valid queuefile, examples would be happily recieved via. a Github Issue.
+
+
+## Unit tests
+
+To build the test suite install https://cmocka.org/
+
+    $ sudo apt install libcmocka-dev
+    $ cd native
+    $ make test
 
 ## Fuzzer & Coverage
 There is basic code coverage reporting using `clang`'s coverage suite, tested on a Mac. This uses shmmain to read and write some entries and shows line by line coverage. Try:
