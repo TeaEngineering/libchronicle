@@ -132,12 +132,11 @@ int main(const int argc, char **argv) {
 		}
 	}
 
-	K parser = kss("text");
-	per(shmipc_init(dir, parser));
+	queue_t* queue = chronicle_init(dir, parser);
 
 	K cb = dl(&printxy, 2);
-	K kindex = kj(0L);
-	per(shmipc_tailer(dir,cb,kindex));
+
+	tailer_t tailer = chronicle_tailer(queue, cb, 0);
 	per(shmipc_peek(dir));
 
 	if (verboseflag) {
@@ -221,7 +220,6 @@ int main(const int argc, char **argv) {
 	r0(dir);
 	r0(parser);
 	r0(cb);
-	r0(kindex);
 
 	return 0;
 }
