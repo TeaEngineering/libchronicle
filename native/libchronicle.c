@@ -135,7 +135,6 @@ typedef struct tailer {
 
 typedef struct queue {
     char*             dirname;
-    char*             hsymbolp;
     uint              blocksize;
     uint8_t           version;
 
@@ -261,15 +260,8 @@ queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cap
 
     if (debug) printf("shmipc: opening dir %s\n", dir);
 
-    // check if queue already open
-    queue_t* queue = queue_head;
-    while (queue != NULL) {
-        if (queue->hsymbolp == dir) return chronicle_perr("shmipc dir dupe init");
-        queue = queue->next;
-    }
-
     // allocate struct, we'll link if all checks pass
-    queue = malloc(sizeof(queue_t));
+    queue_t* queue = malloc(sizeof(queue_t));
     if (queue == NULL) return chronicle_perr("m fail");
     bzero(queue, sizeof(queue_t));
     queue->roll_epoch = -1;
@@ -389,7 +381,6 @@ queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cap
 
     // Good to use
     queue->next = queue_head;
-    queue->hsymbolp = dir; // FIXME
     queue_head = queue;
 
     // avoids a tailer registration before we have a minimum cycle
@@ -606,7 +597,7 @@ void peek_queue_modcount(queue_t* queue) {
     memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
 
     if (queue->modcount != modcount) {
-        printf("shmipc: %s modcount changed from %" PRIu64 " to %" PRIu64 "\n", queue->hsymbolp, queue->modcount, modcount);
+        printf("shmipc: %s modcount changed from %" PRIu64 " to %" PRIu64 "\n", queue->dirname, queue->modcount, modcount);
         // slowpath poll
         memcpy(&queue->modcount, queue->dirlist_fields.modcount, sizeof(modcount));
         memcpy(&queue->lowest_cycle, queue->dirlist_fields.lowest_cycle, sizeof(modcount));
@@ -625,7 +616,7 @@ void poke_queue_modcount(queue_t* queue) {
 }
 
 void chronicle_peek_queue(queue_t *queue) {
-    if (debug) printf("peeking at %s\n", queue->hsymbolp);
+    if (debug) printf("peeking at %s\n", queue->dirname);
     peek_queue_modcount(queue);
 
     tailer_t *tailer = queue->tailers;
@@ -799,7 +790,7 @@ void chronicle_debug() {
 
     queue_t *current = queue_head;
     while (current != NULL) {
-        printf(" handle              %s\n",   current->hsymbolp);
+        printf(" directory           %s\n",   current->dirname);
         printf("  blocksize          %x\n",   current->blocksize);
         printf("  version            %d\n",   current->version);
         printf("  dirlist_name       %s\n",   current->dirlist_name);
