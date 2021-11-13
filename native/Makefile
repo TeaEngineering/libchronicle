@@ -41,6 +41,9 @@ $(ODIR)/fuzzmain: fuzzmain.c shmipc.c mock_k.h $(DEPS)
 $(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
+$(ODIR)/shmexample: shmexample.c $(DEPS)
+	$(CC) -o $@ $< $(CFLAGS) -g -O0
+
 coverage: obj/shmcov
 	obj/shmcov -v -a WORLD :demo/stress
 	/Library/Developer/CommandLineTools/usr/bin/llvm-profdata merge default.profraw -output=default.profout

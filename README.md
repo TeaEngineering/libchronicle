@@ -3,6 +3,53 @@
 
 [OpenHFT](https://github.com/OpenHFT) aka. [Chronicle Software Ltd.](https://chronicle.software/) provide an open-source Java '[Chronicle Queue](https://github.com/OpenHFT/Chronicle-Queue)' ipc library. [This project](https://github.com/TeaEngineering/libchronicle) is an unaffiliated, mostly-compatible, open source implementation in the C-programming language, with bindings to other non-JVM languages. To differentiate I refer to OpenHFTs implementation capitalised as 'Chronicle Queue', and the underlying procotol itself chronicle-queue, and this implementation as `libchronicle`.
 
+## Getting started
+
+This example is [`native/shmexample.c`](native/shmexample.c) and can be built by `make` or with:
+
+    $ gcc -o obj/shmexample shmexample.c libchronicle.c -fPIC -I. -Wall -std=gnu99 -g -O0
+
+
+```C
+#include <libchronicle.h>
+#include <stdarg.h>
+
+// This is a stand-alone tool for replaying a queue
+// queue data is null-terminated strings, embedded nulls will truncate printing
+void* parse_msg(unsigned char* base, int lim) {
+    char* msg = calloc(1, lim+1);
+    memcpy(msg, base, lim);
+    return msg;
+}
+
+int append_msg(unsigned char* base, int sz, void* msg) {
+    memcpy(base, msg, sz);
+    return sz;
+}
+
+long sizeof_msg(void* msg) {
+    return strlen(msg);
+}
+
+int print_msg(void* ctx, uint64_t index, void* msg) {
+    printf("[%" PRIu64 "] %s\n", index, (char*)msg);
+    return 0;
+}
+
+int main(const int argc, char **argv) {
+    queue_t* queue = chronicle_init(argv[1], &parse_msg, &sizeof_msg, &append_msg);
+    chronicle_tailer(queue, &print_msg, NULL, 0);
+    chronicle_append(queue, "Hello World");
+    while (1) {
+        usleep(500*1000);
+        chronicle_peek();
+    }
+    chronicle_close(queue);
+}
+```
+
+Invoke this code passing the directory of an existing queue `./shmexample <queuedir>`, to which it will write a message `Hello World` then print all the data messages from index 0 to the end.
+
 ## Documenting the chronicle-queue format
 The format of the chronicle-queue files containing your data, the shared memory protocol, and the safe ordering of queue file maintenance is currently implementation defined. One hope is that this project will change that!
 
@@ -65,7 +112,10 @@ Planned:
 ## Issues
 The tool `shmmain` can replay, or follow, _DAILY_ or _DAILY_FAST_ queues files as writers proceed. So far as I can tell `shmmain` is compatable with the `InputMain` and `OutputMain` exmaples provided by Chronicle Software Ltd, with either v4 or v5 queues.
 
-It cannot yet use or append to index pages #1 or create a completely empty queue #15.
+- [ ] use/append to index pages #1
+- [ ] create a completely empty queue #15
+- [ ] v5 rollover tests
+- [ ] addiontal RollScheme support
 
 If you can reproduce a segfault on an otherwise valid queuefile, examples would be happily recieved via. a Github Issue.
 
