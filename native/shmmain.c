@@ -12,51 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <libchronicle.c>
+#include <libchronicle.h>
 #include <stdarg.h>
 #include <ctype.h>
-#include "mock_k.h"
 
 // This is a stand-alone tool for replaying a queue, and optionally writing to it.
+// queue data is null-terminated strings, embedded nulls will truncate printing
 
-// globals needed by callbacks
-int print_data = 0;
-
-int printxy(void* ctx, uint64_t index, K y) {
-    if (print_data) {
-        printf("[%" PRIu64 "] ", index);
-        if (y->t == KC)
-            fwrite(kC(y), sizeof(char), y->n, stdout);
-        printf("\n");
-    }
+int print_msg(void* ctx, uint64_t index, COBJ y) {
+    printf("[%" PRIu64 "] %s\n", index, (char*)y);
     return 0;
 }
 
-K kfrom_c_str(const char* s) { // k symbol from string?
-    int n = strlen(s);
-    K r = ktn(KC, n);
-    memcpy((char*)r->G0, s, n);
-    return r;
+COBJ parse_msg(unsigned char* base, int lim) {
+    char* msg = malloc(lim+1);
+    memcpy(msg, base, lim);
+    msg[lim] = 0;
+    return (COBJ)msg;
 }
 
-K parse_data(unsigned char* base, int lim) {
-    if (debug) printf(" text: '%.*s'\n", lim, base);
-    K msg = ktn(KC, lim); // don't free this, handed over to q interp
-    memcpy((char*)msg->G0, base, lim);
-    return msg;
+int append_msg(unsigned char* base, int sz, COBJ msg) {
+    memcpy(base, (char*)msg, sz);
+    return sz;
 }
 
-int append_write(unsigned char* base, int sz, K msg) {
-    memcpy(base, (char*)msg->G0, sz);
-    return msg->n;
-}
-
-long append_sizeof(K msg) {
-    if (msg->t != KC) {
-        krr("msg must be KC");
-        return -1;
-    }
-    return msg->n;
+long sizeof_msg(COBJ msg) {
+    return strlen((char*)msg);
 }
 
 int main(const int argc, char **argv) {
@@ -68,11 +49,8 @@ int main(const int argc, char **argv) {
     uint64_t index = 0;
     int queueflags = 0;
 
-    while ((c = getopt(argc, argv, "dmi:va:cf")) != -1)
+    while ((c = getopt(argc, argv, "i:va:cf")) != -1)
     switch (c) {
-        case 'd':
-            print_data = 1;
-            break;
         case 'i':
             index = strtoull(optarg, NULL, 0);
             break;
@@ -99,8 +77,6 @@ int main(const int argc, char **argv) {
 
     if (optind + 1 > argc) {
         printf("Missing mandatory argument.\n Expected: %s [-d] [-m] [-i INDEX] [-v] [-a text] [-f] QUEUE\n", argv[0]);
-        printf("  -d print data\n");
-        printf("  -m print metadata\n");
         printf("  -i INDEX resume from index\n");
         printf("  -v verbose mode\n");
         printf("  -a TEXT write value text\n");
@@ -117,22 +93,15 @@ int main(const int argc, char **argv) {
         exit(1);
     }
 
-    // what follows is translated q calls from shmipc.q
     char* dir = argv[optind];
-    queue_t* queue = chronicle_init(dir, &parse_data, &append_sizeof, &append_write);
+    queue_t* queue = chronicle_init(dir, &parse_msg, &sizeof_msg, &append_msg);
 
-    // tailer_t* tailer =
-    chronicle_tailer(queue, &printxy, NULL, index);
-
+    chronicle_tailer(queue, &print_msg, NULL, index);
     chronicle_peek();
-
-    if (verboseflag) chronicle_debug();
 
     if (append) {
         printf("writing %s\n", append);
-        K msg = kfrom_c_str(append);
-        chronicle_append(queue, msg);
-        r0(msg);
+        chronicle_append(queue, (COBJ)append);
     }
 
     while (followflag) {
@@ -143,6 +112,5 @@ int main(const int argc, char **argv) {
     if (verboseflag) chronicle_debug();
 
     chronicle_close(queue);
-
     return 0;
 }

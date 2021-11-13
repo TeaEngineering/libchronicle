@@ -26,10 +26,9 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <glob.h>
 #include <time.h>
+#include <libchronicle.h>
 
-#include "k.h"
 #include "wire.h"
 
 /**
@@ -78,28 +77,6 @@
 
 // MetaDataKeys `header`index2index`index`roll
 
-#define MAXDATASIZE 1000 // max number of bytes we can get at once
-
-// Chronicle header special bits
-#define HD_UNALLOCATED 0x00000000
-#define HD_WORKING     0x80000000
-#define HD_METADATA    0x40000000
-#define HD_EOF         0xC0000000
-#define HD_MASK_LENGTH 0x3FFFFFFF
-#define HD_MASK_META   HD_EOF
-
-
-// function pointer typedefs - public interface
-// parsedata_f takes void* and returns custom object if any
-// appendsizeof_f tells library how many bytes required to serialise use object
-// appendwrite_f takes custom object and writes bytes to void*
-// dispatch_f takes custom object and index, delivers to application with user data
-typedef K    (*cparse_f)    (unsigned char*,int);
-typedef long (*csizeof_f)   (K);
-typedef int  (*cappend_f)   (unsigned char*,int,K);
-typedef int  (*cdispatch_f) (void*,uint64_t,K);
-
-
 // error handling
 const char* cerr_msg;
 // error handling - trigger
@@ -118,14 +95,13 @@ const char* chronicle_strerror() {
     return cerr_msg;
 }
 
+// structures
+
 typedef struct {
     unsigned char *highest_cycle;
     unsigned char *lowest_cycle;
     unsigned char *modcount;
 } dirlist_fields_t;
-
-// forward definition of queue
-struct queue;
 
 typedef struct tailer {
     uint64_t          dispatch_after; // for resume support
@@ -134,7 +110,7 @@ typedef struct tailer {
     void*             dispatch_ctx;
     // to support the 'collect' operation to wait and return next item, ignoring callback
     int               collect;
-    K                 collected_value;
+    COBJ              collected_value;
 
     int               mmap_protection; // PROT_READ etc.
 
@@ -153,7 +129,6 @@ typedef struct tailer {
     uint64_t          qf_mmapsz;
 
     struct queue*     queue;
-    int               handle; // opaque int for wrappers
 
     struct tailer*    next;
 } tailer_t;
@@ -201,11 +176,12 @@ typedef struct queue {
     // and no callback to user code for events
     tailer_t*         appender;
 
-    int               handle; // opaque int for wrappers
     struct queue*     next;
 } queue_t;
 
 typedef int (*datacallback_f)(unsigned char*,int,uint64_t,void* userdata);
+
+
 
 // paramaters that control behavior, not exposed for modification
 uint32_t patch_cycles = 3;
@@ -216,14 +192,11 @@ char* debug = NULL;
 uint32_t pid_header = 0;
 queue_t* queue_head = NULL;
 
+
 // forward declarations
 void parse_dirlist(queue_t*);
 void parse_queuefile_meta(unsigned char*, int, queue_t*);
 void parse_queuefile_data(unsigned char*, int, queue_t*, tailer_t*, uint64_t);
-int chronicle_peek_tailer(queue_t*, tailer_t*);
-void chronicle_peek_queue(queue_t*);
-void chronicle_debug_tailer(queue_t*, tailer_t*);
-uint64_t chronicle_append_ts(queue_t*, K, long);
 int queuefile_init(char*, queue_t*);
 int directory_listing_reopen(queue_t*, int, int);
 
@@ -505,7 +478,7 @@ int parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) 
 
     // prep args and fire callback
     if (tailer->dispatcher && index > tailer->dispatch_after) {
-        K msg = tailer->queue->parser(base, lim);
+        COBJ msg = tailer->queue->parser(base, lim);
         if (debug && msg==NULL) printf("chronicle: caution at index %" PRIu64 " parse function returned NULL, skipping\n", index);
 
         // if asked to return inline, we skip dispatcher callback
@@ -878,11 +851,11 @@ void chronicle_debug_tailer(queue_t* queue, tailer_t* tailer) {
     printf("    qf_mmapoff       %" PRIx64 "\n", tailer->qf_mmapoff);
 }
 
-uint64_t chronicle_append(queue_t *queue, K msg) {
+uint64_t chronicle_append(queue_t *queue, COBJ msg) {
     return chronicle_append_ts(queue,msg,0);
 }
 
-uint64_t chronicle_append_ts(queue_t *queue, K msg, long ms) {
+uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
     if (queue == NULL) return chronicle_err("queue is NULL");
 
     // Appending logic
@@ -1048,11 +1021,13 @@ uint64_t chronicle_append_ts(queue_t *queue, K msg, long ms) {
                 continue; // retry write in next queuefile
             }
 
-            queue->append_write(ptr+4, msz, msg);
+            msz = queue->append_write(ptr+4, msz, msg);
 
             asm volatile ("mfence" ::: "memory");
             uint32_t header = msz & HD_MASK_LENGTH;
             memcpy(ptr, &header, sizeof(header));
+
+            if (debug) printf("shmipc: wrote %d bytes as index %" PRIu64 "\n", msz, appender->qf_index);
 
             break;
         }
@@ -1068,7 +1043,6 @@ uint64_t chronicle_append_ts(queue_t *queue, K msg, long ms) {
         poke_queue_modcount(queue);
     }
 
-    if (debug) printf("shmipc: wrote %lld bytes as index %" PRIu64 "\n", msg->n, appender->qf_index);
 
     return appender->qf_index;
 }
@@ -1108,7 +1082,7 @@ tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatc
     return tailer;
 }
 
-K chronicle_collect(tailer_t *tailer) {
+COBJ chronicle_collect(tailer_t *tailer) {
     if (tailer == NULL) return chronicle_perr("null tailer");
     tailer->collect = 1;
 
@@ -1122,7 +1096,7 @@ K chronicle_collect(tailer_t *tailer) {
         }
         if (delaycount++ >> 20) usleep(delaycount >> 20);
     }
-    K x = tailer->collected_value;
+    COBJ x = tailer->collected_value;
     tailer->collected_value = NULL;
     return x;
 }
