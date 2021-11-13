@@ -6,7 +6,7 @@ detected_OS := $(shell uname -s)
 
 IDIR=.
 CC=gcc
-CFLAGS=-DKXVER=3 -fPIC -I$(IDIR) -Wall
+CFLAGS=libchronicle.c -fPIC -I$(IDIR) -Wall
 CDFLAGS=-shared
 ifeq ($(detected_OS),Darwin)  # Mac OS X
     CDFLAGS += -undefined dynamic_lookup
@@ -17,11 +17,11 @@ endif
 
 ODIR=obj
 LIBS=-lm
-DEPS=k.h wire.h
+DEPS=k.h wire.h libchronicle.h libchronicle.c
 
 tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
 testsok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
-all: obj/hpet.so obj/shmmain obj/shmipc.so $(tests)
+all: obj/hpet.so obj/shmmain obj/shmexample obj/shmipc.so $(tests)
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h

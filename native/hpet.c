@@ -18,6 +18,7 @@
  * 1ms KDB Timer.
  */
 
+#define KXVER 3
 #include"k.h"
 #include <unistd.h>
 #include <string.h>

@@ -44,17 +44,21 @@
 #define _GNU_SOURCE
 #define KERR -128
 
+#define KXVER 3
+#include "k.h"
+
 #include <stdarg.h>
 #include <ctype.h>
-#include <libchronicle.c>
+#include <libchronicle.h>
 
 // Usual KDB indirection
 // return handle integer to index structure
 tailer_t** tailer_handles;
 int tailer_handles_count = 0;
+queue_t** queue_handles;
+int queue_handles_count = 0;
 
-
-K parse_kx(unsigned char* base, int lim) {
+COBJ parse_kx(unsigned char* base, int lim) {
     // prep args and fire callback
     K msg = ktn(KG, lim);
     memcpy((char*)msg->G0, base, lim);
@@ -64,7 +68,7 @@ K parse_kx(unsigned char* base, int lim) {
         r0(msg);
         return out;
     } else {
-        if (debug) printf("shmipc: caution index okx returned bytes !ok, skipping\n");
+        // if (debug) printf("shmipc: caution index okx returned bytes !ok, skipping\n");
         return NULL;
     }
     return 0;
@@ -72,17 +76,20 @@ K parse_kx(unsigned char* base, int lim) {
 
 // the encoding via. b9 happens in shmipc_append, so here we just
 // write the bytes
-int append_kx(unsigned char* base, int lim, K msg) {
-    memcpy(base, (char*)msg->G0, msg->n);
-    return msg->n;
+int append_kx(unsigned char* base, int lim, COBJ msg) {
+    K m = (K)msg;
+    memcpy(base, (char*)m->G0, m->n);
+    return m->n;
 }
 
-long sizeof_kx(K msg) {
-    if (debug) printf("shmipc: kx persist needs %lld bytes\n", msg->n);
-    return msg->n;
+long sizeof_kx(COBJ msg) {
+    // if (debug) printf("shmipc: kx persist needs %lld bytes\n", msg->n);
+    K m = (K)msg;
+    return m->n;
 }
 
-int tailer_callback_kx(void* dispatch_ctx, uint64_t index, K msg) {
+int tailer_callback_kx(void* dispatch_ctx, uint64_t index, COBJ m) {
+    K msg = (K)m;
     K arg = knk(2, kj(index), msg);
 
     K r = dot((K)dispatch_ctx, arg);
@@ -113,34 +120,36 @@ K shmipc_init(K dir, K parser) {
     //     return krr("bad format: supports `kx and `text");
     // }
 
-    queue_t* r;
+    queue_t* queue;
     char* dirs = &dir->s[1];
     if (strncmp(parser->s, "text", parser->n) == 0) {
-        r = chronicle_init(dirs, &parse_kx, &sizeof_kx, &append_kx);
+        queue = chronicle_init(dirs, &parse_kx, &sizeof_kx, &append_kx);
     } else if (strncmp(parser->s, "kx", parser->n) == 0) {
-        r = chronicle_init(dirs, &parse_kx, &sizeof_kx, &append_kx);
+        queue = chronicle_init(dirs, &parse_kx, &sizeof_kx, &append_kx);
     } else {
         return krr("bad format: supports `kx and `text");
     }
 
-    return kj(r == NULL ? -1: 0);
+    int handle = -1;
+    if (queue) {
+        // maintain array for index lookup
+        handle = queue_handles_count;
+        queue_handles = realloc(queue_handles, ++queue_handles_count * sizeof(queue_t*));
+        queue_handles[handle] = queue;
+    }
+    return ki(handle);
 }
 
-K shmipc_append_ts(K dir, K msg, K ms) {
-    if (dir->t != -KS) return krr("dir is not symbol");
-    if (dir->s[0] != ':') return krr("dir is not symbol handle :");
+K shmipc_append_ts(K queuei, K msg, K ms) {
+    if (queuei->t != -KI) return krr("queue is not int");
+    if (queuei->i < 0 || queuei->i >= queue_handles_count) return krr("queue out of range");
+    queue_t *queue = queue_handles[queuei->i];
+    if (queue == NULL) return krr("queue closed");
+
     if (ms != NULL && ms->t != -KJ) return krr("ms NULL or J milliseconds");
 
     long millis = -1;
     if (ms) millis = ms->j;
-
-    // check if queue already open
-    queue_t *queue = queue_head;
-    while (queue != NULL) {
-        if (queue->hsymbolp == dir->s) break;
-        queue = queue->next;
-    }
-    if (queue == NULL) return krr("dir must be shmipc.init[] first");
 
     // convert msg based on the format selected
     // TODO: support text etc etc?
@@ -155,70 +164,53 @@ K shmipc_append_ts(K dir, K msg, K ms) {
     return kj(j);
 }
 
-K shmipc_append(K dir, K msg) {
-    return shmipc_append_ts(dir, msg, NULL);
+K shmipc_append(K queuei, K msg) {
+    return shmipc_append_ts(queuei, msg, NULL);
 }
 
-K shmipc_tailer(K dir, K callback, K index) {
-    if (dir->t != -KS) return krr("dir is not symbol");
-    if (dir->s[0] != ':') return krr("dir is not symbol handle :");
+K shmipc_tailer(K queuei, K callback, K index) {
+    if (queuei->t != -KI) return krr("queue is not int");
+    if (queuei->i < 0 || queuei->i >= queue_handles_count) return krr("queue out of range");
+    queue_t *queue = queue_handles[queuei->i];
+    if (queue == NULL) return krr("queue closed");
+
     if (index->t != -KJ) return krr("index must be J");
     // if (callback-> != function) return krr("dispatcher is not a callback");
-
-    // check if queue already open
-    queue_t *queue = queue_head;
-    while (queue != NULL) {
-        if (queue->hsymbolp == dir->s) break;
-        queue = queue->next;
-    }
-    if (queue == NULL) return krr("dir must be shmipc.init[] first");
 
     tailer_t* tailer = chronicle_tailer(queue, &tailer_callback_kx, callback, index->j);
 
     // maintain array for index lookup
-    tailer->handle = tailer_handles_count;
+    int handle = tailer_handles_count;
     tailer_handles = realloc(tailer_handles, ++tailer_handles_count * sizeof(tailer_t*));
-    tailer_handles[tailer->handle] = tailer;
-    K r = ki(tailer->handle);
+    tailer_handles[handle] = tailer;
+    K r = ki(handle);
 
     r0(index);
     return r;
 }
 
-
-
-
-K shmipc_collect(K idx) {
-    if (idx->t != -KI) return krr("idx is not int");
-    if (idx->i < 0 || idx->i >= tailer_handles_count) return krr("idx out of range");
-    tailer_t* tailer = tailer_handles[idx->i];
+K shmipc_collect(K taileri) {
+    if (taileri->t != -KI) return krr("idx is not int");
+    if (taileri->i < 0 || taileri->i >= tailer_handles_count) return krr("idx out of range");
+    tailer_t* tailer = tailer_handles[taileri->i];
 
     K r = chronicle_collect(tailer);
     return r;
 }
 
+K shmipc_close(K queuei) {
+    if (queuei->t != -KI) return krr("queue is not int");
+    if (queuei->i < 0 || queuei->i >= queue_handles_count) return krr("queue out of range");
+    queue_t *queue = queue_handles[queuei->i];
+    if (queue == NULL) return krr("queue already closed");
 
-K shmipc_close(K dir) {
-    if (dir->t != -KS) return krr("dir is not symbol");
-    if (dir->s[0] != ':') return krr("dir is not symbol handle :");
-
-    // check if queue already open
-    queue_t *queue = queue_head;
-    while (queue != NULL) {
-        if (queue->hsymbolp == dir->s) break;
-        queue = queue->next;
-    }
-    if (queue == NULL) return krr("dir must be shmipc.init[] first");
-
+    queue_handles[queuei->i] = NULL;
     int r = chronicle_close(queue);
+
     return kj(r);
 }
 
 K shmipc_peek(K x) {
-    queue_t *queue = queue_head;
-    while (queue != NULL) {
-        chronicle_peek_queue(queue);
-        queue = queue->next;
-    }
+    chronicle_peek();
     return (K)0;
 }
