@@ -6,7 +6,7 @@ detected_OS := $(shell uname -s)
 
 IDIR=.
 CC=gcc
-CFLAGS=libchronicle.c buffer.c -fPIC -I$(IDIR) -Wall
+CFLAGS=libchronicle.c wire.c buffer.c -fPIC -I$(IDIR) -Wall
 CDFLAGS=-shared
 ifeq ($(detected_OS),Darwin)  # Mac OS X
     CDFLAGS += -undefined dynamic_lookup
@@ -17,7 +17,7 @@ endif
 
 ODIR=obj
 LIBS=-lm
-DEPS=k.h wire.h libchronicle.h libchronicle.c buffer.h buffer.c
+DEPS=k.h wire.h wire.c libchronicle.h libchronicle.c buffer.h buffer.c
 
 tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
 testsok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
