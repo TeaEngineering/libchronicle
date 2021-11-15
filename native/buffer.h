@@ -1,4 +1,4 @@
-// Copyright 2018 Tea Engineering Ltd.
+// Copyright 2021 Tea Engineering Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,28 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-static void printbuf(char* c, int n) {
-    printf("'");
-    for (int i = 0; i < n; i++) {
-    switch (c[i]) {
+#ifndef FILE_LIBBUFFER_SEEN
+#define FILE_LIBBUFFER_SEEN
 
-        case '\n':
-            printf("\\n");
-            break;
-        case '\r':
-            printf("\\r");
-            break;
-        case '\t':
-            printf("\\t");
-            break;
-        default:
-            if ((c[i] < 0x20) || (c[i] > 0x7f)) {
-                printf("\\%03o", (unsigned char)c[i]);
-            } else {
-                printf("%c", c[i]);
-            }
-        break;
-      }
-    }
-    printf("'\n");
-}
+void printbuf(char* c, int n);
+char* formatbuf(char* buf, int sz);
+
+#endif
