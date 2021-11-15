@@ -873,7 +873,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
     //    if data or index, skip over them and attempt again on newest page
 
     // caution: encodecheck may tweak blocksize, do not redorder below shmipc_peek_tailer
-    long write_sz = queue->append_sizeof(msg);
+    size_t write_sz = queue->append_sizeof(msg);
     if (write_sz < 0) return 0;
     if (write_sz > HD_MASK_META) return chronicle_err("`shm msg sz > 30bit");
     while (write_sz > queue->blocksize)
@@ -977,8 +977,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
             continue;
         }
 
-        uint32_t msz = write_sz;
-        if ((appender->qf_tip - appender->qf_mmapoff) + msz > appender->qf_mmapsz) {
+        if ((appender->qf_tip - appender->qf_mmapoff) + write_sz > appender->qf_mmapsz) {
             printf("aborting on bug: write would segfault buffer!\n");
             abort();
         }
@@ -1012,13 +1011,13 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
                 continue; // retry write in next queuefile
             }
 
-            msz = queue->append_write(ptr+4, msz, msg);
+            write_sz = queue->append_write(ptr+4, write_sz, msg);
 
             asm volatile ("mfence" ::: "memory");
-            uint32_t header = msz & HD_MASK_LENGTH;
+            uint32_t header = write_sz & HD_MASK_LENGTH;
             memcpy(ptr, &header, sizeof(header));
 
-            if (debug) printf("shmipc: wrote %d bytes as index %" PRIu64 "\n", msz, appender->qf_index);
+            if (debug) printf("shmipc: wrote %zu bytes as index %" PRIu64 "\n", write_sz, appender->qf_index);
 
             break;
         }

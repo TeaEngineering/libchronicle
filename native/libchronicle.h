@@ -52,10 +52,10 @@ typedef void* DISPATCH_CTX;
 // sizeof_f    tells library how many bytes required to serialise user object
 // write_f     takes custom object and writes bytes to void*
 // dispatch_f  takes custom object and index, delivers to application with user data
-typedef COBJ  (*cparse_f)    (unsigned char*,int);
-typedef long  (*csizeof_f)   (COBJ);
-typedef int   (*cappend_f)   (unsigned char*,int,COBJ);
-typedef int   (*cdispatch_f) (DISPATCH_CTX,uint64_t,COBJ);
+typedef COBJ   (*cparse_f)    (unsigned char*,int);
+typedef size_t (*csizeof_f)   (COBJ);
+typedef size_t (*cappend_f)   (unsigned char*,size_t,COBJ);
+typedef int    (*cdispatch_f) (DISPATCH_CTX,uint64_t,COBJ);
 
 // forward definition of queue
 typedef struct queue queue_t;
