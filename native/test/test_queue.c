@@ -20,12 +20,12 @@ COBJ parse_msg(unsigned char* base, int lim) {
     return (COBJ)msg;
 }
 
-int append_msg(unsigned char* base, int sz, COBJ msg) {
+size_t append_msg(unsigned char* base, size_t sz, COBJ msg) {
     memcpy(base, (char*)msg, sz);
     return sz;
 }
 
-long sizeof_msg(COBJ msg) {
+size_t sizeof_msg(COBJ msg) {
     return strlen((char*)msg);
 }
 

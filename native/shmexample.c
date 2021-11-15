@@ -9,12 +9,12 @@ void* parse_msg(unsigned char* base, int lim) {
     return msg;
 }
 
-int append_msg(unsigned char* base, int sz, void* msg) {
+size_t append_msg(unsigned char* base, size_t sz, void* msg) {
     memcpy(base, msg, sz);
     return sz;
 }
 
-long sizeof_msg(void* msg) {
+size_t sizeof_msg(void* msg) {
     return strlen(msg);
 }
 

@@ -76,13 +76,13 @@ COBJ parse_kx(unsigned char* base, int lim) {
 
 // the encoding via. b9 happens in shmipc_append, so here we just
 // write the bytes
-int append_kx(unsigned char* base, int lim, COBJ msg) {
+size_t append_kx(unsigned char* base, size_t lim, COBJ msg) {
     K m = (K)msg;
     memcpy(base, (char*)m->G0, m->n);
     return m->n;
 }
 
-long sizeof_kx(COBJ msg) {
+size_t sizeof_kx(COBJ msg) {
     // if (debug) printf("shmipc: kx persist needs %lld bytes\n", msg->n);
     K m = (K)msg;
     return m->n;
