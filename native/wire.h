@@ -59,24 +59,33 @@ void        wirepad_dump(wirepad_t* pad);
 char*       wirepad_hexformat(wirepad_t* pad);
 void        wirepad_free(wirepad_t* pad);
 
+void        wirepad_pad_to_x8(wirepad_t* pad);
+void        wirepad_pad_to_x8_00(wirepad_t* pad);
 void        wirepad_event_name(wirepad_t* pad, char* event_name);
 void        wirepad_type_prefix(wirepad_t* pad, char* type_prefix);
 
-void        wirepad_nest_enter(wirepad_t* pad, char* nest_name);
+void        wirepad_text(wirepad_t* pad, char* text);
+void        wirepad_uint64_aligned(wirepad_t* pad, uint64_t v);
+
+void        wirepad_qc_start(wirepad_t* pad, int metadata);
+void        wirepad_qc_finish(wirepad_t* pad);
+
+void        wirepad_nest_enter(wirepad_t* pad);
 void        wirepad_nest_exit(wirepad_t* pad);
+
+void        wirepad_field(wirepad_t* pad, char* text);
+void        wirepad_field_varint(wirepad_t* pad, char* field, int v);
 void        wirepad_field_text(wirepad_t* pad, char* field, char* text);
-void        wirepad_field_uint8(wirepad_t* pad, char* field, int v);
-void        wirepad_field_uint32(wirepad_t* pad, char* field, int v);
-void        wirepad_field_int64(wirepad_t* pad, char* field, uint64_t v);
+void        wirepad_field_uint64(wirepad_t* pad, char* field, uint64_t v);
 void        wirepad_field_float64(wirepad_t* pad, char* field, double v);
 void        wirepad_field_enum(wirepad_t* pad, char* field, char* v);
-
-void        wirepad_text(wirepad_t* pad, char* text);
+void        wirepad_field_type_enum(wirepad_t* pad, char* field, char* type, char* v);
 
 
 // sizeof and wrote take a wirepad_t argument, cast down to void* here for ease of use with libchronicle
 long        wirepad_sizeof(void* pad);
 long        wirepad_write(unsigned char* base, int sz, void* pad);
+unsigned char* wirepad_base(wirepad_t* pad);
 
 void        wirepad_parse(wirepad_t* pad, wirecallbacks_t* cbs);
 
