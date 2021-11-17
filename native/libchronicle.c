@@ -562,6 +562,8 @@ void parse_dirlist(queue_t* queue) {
     int lim = queue->dirlist_statbuf.st_size;
     unsigned char* base = queue->dirlist;
     uint64_t index = 0;
+    // used to dump out the test data for test_wire.c
+    // printbuf((char*)base, lim);
 
     wirecallbacks_t cbs;
     bzero(&cbs, sizeof(cbs));

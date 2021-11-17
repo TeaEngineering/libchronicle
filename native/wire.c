@@ -88,7 +88,7 @@ void parse_wire(unsigned char* base, int lim, wirecallbacks_t* cbs) {
                 break;
             case 0x8E: // PADDING_32
                 memcpy(&padding32, p, sizeof(padding32));
-                p += 4 + padding32;
+                p += 4 + padding32;  // not a bug, padding 4 bytes is a counter of extra bytes to skip
                 break;
             case 0x82: // BYTES_LENGTH32, introduces nested structure with length
                 memcpy(&padding32, p, sizeof(padding32));
@@ -219,36 +219,24 @@ void wirepad_extent(wirepad_t* pad, int sz) {
 void wirepad_text(wirepad_t* pad, char* text) {
     int d = strlen(text);
     int overhead = d < 0x1F ? 1 : 4;
-    int padding = -(overhead + d) & 0x03;
-    if (wire_trace) printf("wirepad_text pos=%p writing d=%d overhead=%d padding=%d\n", pad->pos, d, overhead, padding);
-    wirepad_extent(pad, d+overhead+padding);
+    if (wire_trace) printf("wirepad_text pos=%p writing d=%d overhead=%d\n", pad->pos, d, overhead);
+    wirepad_extent(pad, d+overhead);
     if (d < 0x1F) {
         pad->pos[0] = 0xE0 + d;
     } else {
         pad->pos[0] = 0xB8;
         // put stop bit encoded length
-        // ...
+        printf("long text encoding?");
+        abort();
     }
     memcpy(pad->pos+overhead, text, d);
-    if (padding == 1) {
-        pad->pos[overhead+d+0] = 0x00;
-    } else if (padding == 2) {
-        pad->pos[overhead+d+0] = 0x00;
-        pad->pos[overhead+d+1] = 0x00;
-        //pad->pos[overhead+d];
-    } else if (padding == 3) {
-        pad->pos[overhead+d+0] = 0x00;
-        pad->pos[overhead+d+1] = 0x00;
-        pad->pos[overhead+d+2] = 0x00;
-        // blah
-    }
-    pad->pos = pad->pos + d + overhead + padding;
+    pad->pos = pad->pos + d + overhead;
 }
 
 void wirepad_field(wirepad_t* pad, char* text) {
     int d = strlen(text);
     int overhead = d < 0x1F ? 1 : 4;
-    if (wire_trace) printf("wirepad_field pos=%p writing d=%d overhead=%d\n", pad->pos, d, overhead);
+    if (wire_trace) printf("wirepad_field pos=%p writing text=%s d=%d overhead=%d\n", pad->pos, text, d, overhead);
     wirepad_extent(pad, d+overhead);
     if (d < 0x1F) {
         pad->pos[0] = 0xC0 + d;
@@ -257,13 +245,48 @@ void wirepad_field(wirepad_t* pad, char* text) {
         abort();
     }
     memcpy(pad->pos+overhead, text, d);
-    pad->pos = pad->pos + d + overhead;
+    pad->pos = pad->pos + overhead + d;
+}
+
+void wirepad_uint64_aligned(wirepad_t* pad, uint64_t v) {
+    if (wire_trace) printf("wirepad_uint64 pos=%p writing uint64=%" PRIu64 "\n", pad->pos, v);
+    wirepad_extent(pad, 16);
+
+    // align the 8 data bytes to a multiple of 8 bytes, which
+    // requires aligning the A7 prefix before it to the last byte of 8
+    int padding = -((pad->pos + 1) - pad->base) & 0x7; // current (position+1), align to 8
+
+    // optimise padding between 0x8F and 0x8E
+    if (padding == 0) {
+        // emit nothing
+    } else if (padding < 5) {
+        pad->pos[0] = 0x8F; // later bytes overwritten if not required
+        pad->pos[1] = 0x8F;
+        pad->pos[2] = 0x8F;
+        pad->pos[3] = 0x8F;
+        pad->pos = pad->pos + padding;
+    } else {
+        pad->pos[0] = 0x8E;
+        uint32_t header = padding - 5;
+        memcpy(pad->pos + 1, &header, sizeof(header));
+        // TODO: byte 5, 6, 7 left uninitialised
+        pad->pos += 5 + header;
+    }
+    pad->pos[0] = 0xA7; // INT64
+    memcpy(pad->pos+1, &v, sizeof(v));
+    pad->pos = pad->pos + 9;
 }
 
 void wirepad_varint(wirepad_t* pad, uint64_t v) {
-    if (wire_trace) printf("wirepad_varint pos=%p writing d=%" PRIu64 "\n", pad->pos, v);
+    // compacted value representation, unaligned
+
+    if (wire_trace) printf("wirepad_varint pos=%p writing varint=%" PRIu64 "\n", pad->pos, v);
     wirepad_extent(pad, 9);
-    if (v <= 0xFFFF) {
+
+    if (v <= 0x7F) {
+        pad->pos[0] = v & 0x7F;
+        pad->pos = pad->pos + 1;
+    } else if (v <= 0xFFFF) {
         pad->pos[0] = 0xa5; // INT16
         pad->pos[1] = (v >>  0) & 0xff;
         pad->pos[2] = (v >>  8) & 0xff;
@@ -279,17 +302,9 @@ void wirepad_varint(wirepad_t* pad, uint64_t v) {
         pad->pos = pad->pos + 5;
     } else {
         pad->pos[0] = 0xA7; // INT64
-        pad->pos[1] = (v >>  0) & 0xff;
-        pad->pos[2] = (v >>  8) & 0xff;
-        pad->pos[3] = (v >> 16) & 0xff;
-        pad->pos[4] = (v >> 24) & 0xff;
-        pad->pos[5] = (v >> 32) & 0xff;
-        pad->pos[6] = (v >> 40) & 0xff;
-        pad->pos[7] = (v >> 48) & 0xff;
-        pad->pos[8] = (v >> 56) & 0xff;
+        memcpy(pad->pos+1, &v, sizeof(v));
         pad->pos = pad->pos + 9;
     }
-
 }
 
 void wirepad_field_text(wirepad_t* pad, char* field, char* text) {
@@ -302,9 +317,15 @@ void wirepad_field_enum(wirepad_t* pad, char* field, char* text) {
     wirepad_text(pad, text);
 }
 
-void wirepad_field_int64(wirepad_t* pad, char* field, uint64_t v) {
+void wirepad_field_type_enum(wirepad_t* pad, char* field, char* type, char* text) {
     wirepad_field(pad, field);
-    wirepad_varint(pad, v);
+    wirepad_type_prefix(pad, type);
+    wirepad_text(pad, text);
+}
+
+void wirepad_field_uint64(wirepad_t* pad, char* field, uint64_t v) {
+    wirepad_field(pad, field);
+    wirepad_uint64_aligned(pad, v);
 }
 
 void wirepad_field_float64(wirepad_t* pad, char* field, double v) {
@@ -321,29 +342,97 @@ void wirepad_field_float64(wirepad_t* pad, char* field, double v) {
 
 }
 
-void wirepad_field_uint8(wirepad_t* pad, char* field, int v) {
+void wirepad_field_varint(wirepad_t* pad, char* field, int v) {
     wirepad_field(pad, field);
+    wirepad_varint(pad, v);
 }
 
-void wirepad_field_uint32(wirepad_t* pad, char* field, int v) {
-    wirepad_field(pad, field);
+void wirepad_pad_to_x8(wirepad_t* pad) {
+    int padding = -(pad->pos - pad->base) & 0x07;
+    for (int i = 0; i < padding; i++) {
+        pad->pos[i] = 0x8F;
+    }
+    pad->pos = pad->pos + padding;
+}
+
+void wirepad_pad_to_x8_00(wirepad_t* pad) {
+    int padding = -(pad->pos - pad->base) & 0x07;
+    for (int i = 0; i < padding; i++) {
+        pad->pos[i] = 0x00;
+    }
+    pad->pos = pad->pos + padding;
 }
 
 void wirepad_event_name(wirepad_t* pad, char* event_name) {
-
+    int d = strlen(event_name);
+    if (wire_trace) printf("wirepad_event_name pos=%p name=%s\n", pad->pos, event_name);
+    if (d > 0xFF) {
+        printf("event_name large encoding?");
+        abort();
+    }
+    pad->pos[0] = 0xB9;
+    pad->pos[1] = d & 0xFF;
+    memcpy(pad->pos+2, event_name, d);
+    pad->pos = pad->pos + 2 + d;
 }
 
 void wirepad_type_prefix(wirepad_t* pad, char* type_prefix) {
-
+    int d = strlen(type_prefix);
+    if (wire_trace) printf("wirepad_type_prefix pos=%p name=%s\n", pad->pos, type_prefix);
+    if (d > 0xFF) {
+        printf("type_prefix large encoding?");
+        abort();
+    }
+    pad->pos[0] = 0xB6;
+    pad->pos[1] = d & 0xFF;
+    memcpy(pad->pos+2, type_prefix, d);
+    pad->pos = pad->pos + 2 + d;
 }
 
+const uint32_t QC_HD_WORKING  = 0x80000000;
+const uint32_t QC_HD_METADATA = 0x40000000;
 
-void wirepad_nest_enter(wirepad_t* pad, char* nest_name) {
+void wirepad_qc_start(wirepad_t* pad, int metadata) {
+    uint32_t header = QC_HD_WORKING | (metadata==0 ? 0 : QC_HD_METADATA);
+    if (wire_trace) printf("wirepad_qc_start pos=%p meta=%d nest=%d header=0x%x\n", pad->pos, metadata, pad->nest, header);
+    wirepad_extent(pad, 9);
+    memcpy(pad->pos, &header, sizeof(header));
+    pad->nest_enter_pos[pad->nest++] = pad->pos;
+    pad->pos = pad->pos + 4;
+}
 
+void wirepad_qc_finish(wirepad_t* pad) {
+    pad->nest--;
+    unsigned char* entered = pad->nest_enter_pos[pad->nest];
+    int len = pad->pos - entered - 4;
+    if (wire_trace) printf("wirepad_qc_finish pos=%p entered=%p len=%d (0x%x) nest=%d\n", pad->pos, entered, len, len, pad->nest);
+
+    uint32_t header = 0;
+    memcpy(&header, entered, sizeof(header));
+    header = (header & ~QC_HD_WORKING) | len; // clear WORKING bit, set size
+    // copy back
+    memcpy(entered, &header, sizeof(header));
+    // pad->pos hasn't moved!
+}
+
+void wirepad_nest_enter(wirepad_t* pad) {
+    if (wire_trace) printf("wirepad_nest_start pos=%p nest=%d\n", pad->pos, pad->nest);
+    wirepad_extent(pad, 5);
+    uint32_t header = 0;
+    pad->pos[0] = 0x82;
+    memcpy(pad->pos+1, &header, sizeof(header));
+    pad->nest_enter_pos[pad->nest++] = pad->pos+1;
+    pad->pos = pad->pos + 5;
 }
 
 void wirepad_nest_exit(wirepad_t* pad) {
+    pad->nest--;
+    unsigned char* entered = pad->nest_enter_pos[pad->nest];
+    int len = pad->pos - entered - 4;
+    if (wire_trace) printf("wirepad_nest_exit pos=%p entered=%p len=%d (0x%x) nest=%d\n", pad->pos, entered, len, len, pad->nest);
 
+    uint32_t header = len;
+    memcpy(entered, &header, sizeof(header));
 }
 
 void wirepad_parse(wirepad_t* pad, wirecallbacks_t* cbs) {
@@ -364,7 +453,6 @@ char* wirepad_hexformat(wirepad_t* pad) {
     return formatbuf((char*)pad->base, n);
 }
 
-
 // sizeof and wrote take a wirepad_t argument, cast down to void* here for ease of use with libchronicle
 long wirepad_sizeof(void* msg) {
     wirepad_t* pad = (wirepad_t*)msg;
@@ -373,6 +461,11 @@ long wirepad_sizeof(void* msg) {
 
 long wirepad_write(unsigned char* base, int sz, void* msg) {
     wirepad_t* pad = (wirepad_t*)msg;
+    printf("wirepad_write needs memcpy\n");
+    abort();
     return pad->pos - pad->base;
 }
 
+unsigned char* wirepad_base(wirepad_t* pad) {
+    return pad->base;
+}
