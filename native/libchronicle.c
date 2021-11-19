@@ -187,7 +187,7 @@ uint32_t patch_cycles = 3;
 long int qf_disk_sz = 83754496L;
 
 // globals
-char* debug = NULL;
+int debug = 0;
 uint32_t pid_header = 0;
 queue_t* queue_head = NULL;
 
@@ -253,10 +253,10 @@ void queue_double_blocksize(queue_t* queue) {
 
 
 queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cappend_f append_write) {
-    debug = getenv("SHMIPC_DEBUG");
-
-    char* wiretraceenv = getenv("SHMIPC_WIRETRACE");
-    wire_trace = (wiretraceenv == NULL) ? 0 : strcmp(wiretraceenv, "1");
+    char* debug_env = getenv("SHMIPC_DEBUG");
+    debug = (debug_env == NULL) ? 0 : strcmp(debug_env, "1") == 0;
+    char* wiretrace_env = getenv("SHMIPC_WIRETRACE");
+    wire_trace = (wiretrace_env == NULL) ? 0 : strcmp(wiretrace_env, "1") == 0;
 
     pid_header = (getpid() & HD_MASK_LENGTH);
 
