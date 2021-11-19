@@ -455,8 +455,8 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
             index++;
             *indexp = index;
         }
-
-        base = base + 4 + sz;
+        int pad4 = -sz & 0x03;
+        base = base + 4 + sz + pad4;
         *basep = base;
     }
     return pd;
