@@ -13,31 +13,17 @@
 // limitations under the License.
 
 #include <libchronicle.h>
+#include <wire.h>
 #include <stdarg.h>
 #include <ctype.h>
 
 // This is a stand-alone tool for replaying a queue, and optionally writing to it.
-// queue data is null-terminated strings, embedded nulls will truncate printing
-
+// It is compatible with java InputMain / OutputMain, ie. the data payloads are
+// wire-format encoded. we use wire.h to encode/decode this.
 int print_msg(void* ctx, uint64_t index, COBJ y) {
     printf("[%" PRIu64 "] %s\n", index, (char*)y);
+    free(y);
     return 0;
-}
-
-COBJ parse_msg(unsigned char* base, int lim) {
-    char* msg = malloc(lim+1);
-    memcpy(msg, base, lim);
-    msg[lim] = 0;
-    return (COBJ)msg;
-}
-
-size_t append_msg(unsigned char* base, size_t sz, COBJ msg) {
-    memcpy(base, (char*)msg, sz);
-    return sz;
-}
-
-size_t sizeof_msg(COBJ msg) {
-    return strlen((char*)msg);
 }
 
 int main(const int argc, char **argv) {
@@ -94,14 +80,18 @@ int main(const int argc, char **argv) {
     }
 
     char* dir = argv[optind];
-    queue_t* queue = chronicle_init(dir, &parse_msg, &sizeof_msg, &append_msg);
+    queue_t* queue = chronicle_init(dir, &wire_parse_textonly, &wirepad_sizeof, &wirepad_write);
+
+    wirepad_t* pad = wirepad_init(1024);
 
     chronicle_tailer(queue, &print_msg, NULL, index);
     chronicle_peek();
 
     if (append) {
         printf("writing %s\n", append);
-        chronicle_append(queue, (COBJ)append);
+        wirepad_clear(pad);
+        wirepad_text(pad, append);
+        chronicle_append(queue, pad);
     }
 
     while (followflag) {

@@ -81,12 +81,19 @@ void        wirepad_field_float64(wirepad_t* pad, char* field, double v);
 void        wirepad_field_enum(wirepad_t* pad, char* field, char* v);
 void        wirepad_field_type_enum(wirepad_t* pad, char* field, char* type, char* v);
 
-
-// sizeof and wrote take a wirepad_t argument, cast down to void* here for ease of use with libchronicle
-long        wirepad_sizeof(void* pad);
-long        wirepad_write(unsigned char* base, int sz, void* pad);
 unsigned char* wirepad_base(wirepad_t* pad);
-
 void        wirepad_parse(wirepad_t* pad, wirecallbacks_t* cbs);
+
+// Integration with queues using BinaryWire for their data pages
+//
+// cparse_f for the common case where the wire format is just text,
+// and we want to capture the text into a new object. Object must
+// be freed by the callback cdispatch_f
+void*       wire_parse_textonly(unsigned char* base, int lim);
+
+// sizeof_f and append_f where the object to be written is a wirepad_t
+// which is cast down to void* here for ease of use with libchronicle
+size_t      wirepad_sizeof(void* pad);
+size_t      wirepad_write(unsigned char* base, size_t sz, void* pad);
 
 #endif
