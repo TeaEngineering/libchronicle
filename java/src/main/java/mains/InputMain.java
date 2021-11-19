@@ -19,8 +19,8 @@ public class InputMain {
         SingleChronicleQueue queue = SingleChronicleQueueBuilder.binary(path).build();
         ExcerptAppender appender = queue.acquireAppender();
         Scanner read = new Scanner(System.in);
-        System.out.println("type something");
-        while (true) {
+        System.out.println("Input text:");
+        while(read.hasNextLine()) {
             String line = read.nextLine();
             if (line.isEmpty())
                 break;
