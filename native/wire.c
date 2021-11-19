@@ -453,19 +453,45 @@ char* wirepad_hexformat(wirepad_t* pad) {
     return formatbuf((char*)pad->base, n);
 }
 
+unsigned char* wirepad_base(wirepad_t* pad) {
+    return pad->base;
+}
+
+// Integration with queues using BinaryWire for their data pages
+// these are not strictly part of wire.h but ease integration with
+// libchronicle.c
+//
+// writer
 // sizeof and wrote take a wirepad_t argument, cast down to void* here for ease of use with libchronicle
-long wirepad_sizeof(void* msg) {
+size_t wirepad_sizeof(void* msg) {
     wirepad_t* pad = (wirepad_t*)msg;
     return pad->pos - pad->base;
 }
 
-long wirepad_write(unsigned char* base, int sz, void* msg) {
+size_t wirepad_write(unsigned char* base, size_t sz, void* msg) {
     wirepad_t* pad = (wirepad_t*)msg;
     printf("wirepad_write needs memcpy\n");
     abort();
     return pad->pos - pad->base;
 }
 
-unsigned char* wirepad_base(wirepad_t* pad) {
-    return pad->base;
+// parser
+// an implementation of cparse_f where we capture text and return to new object
+void wire_parse_textonly_text(char* field, int fsz, char* data, int dsz, wirecallbacks_t* cbs) {
+    char** res = (char**)cbs->userdata;
+    // avoid leak if multiple text entries - return last
+    if (*res != NULL) free(*res);
+    *res = strndup(data, dsz);
+}
+
+void* wire_parse_textonly(unsigned char* base, int lim) {
+    wirecallbacks_t cbs;
+    char* text_result = NULL;
+
+    bzero(&cbs, sizeof(cbs));
+    cbs.field_char = &wire_parse_textonly_text;
+    cbs.userdata = &text_result;
+    wire_parse(base, lim, &cbs);
+
+    return text_result;
 }
