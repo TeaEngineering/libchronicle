@@ -29,8 +29,8 @@ k.h:
 $(ODIR)/%.so: %.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
 
-%.to: %.c $(DEPS)
-	$(CC) -o $@ $< $(CFLAGS) -lcmocka
+%.to: %.c test/testdata.h $(DEPS)
+	$(CC) -o $@ $< $(CFLAGS) -g -O0 -lcmocka -larchive
 
 %.tok: %.to
 	$< && touch $@
