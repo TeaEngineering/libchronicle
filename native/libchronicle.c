@@ -30,6 +30,7 @@
 #include <libchronicle.h>
 
 #include "wire.h"
+#include "buffer.h"
 
 /**
  * Implementation notes
@@ -472,8 +473,7 @@ int parse_wire_data(unsigned char* base, int lim, uint64_t index, void* cbs) {
 // return 0 to continue dispaching, 7 to signal collected item
 int parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
-    if (debug) printf(" text: %" PRIu64 " '%.*s'\n", index, lim, base);
-
+    if (debug) printbuf((char*)base, lim);
     // prep args and fire callback
     if (tailer->dispatcher && index > tailer->dispatch_after) {
         COBJ msg = tailer->queue->parser(base, lim);
