@@ -48,3 +48,14 @@ libchronicle write, Java read:
     $ ../native/obj/shmmain :q1/ -d -a HELLO
     $ ../native/obj/shmmain :q1/ -d
     $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.OutputMain q1
+
+
+### Adding test data for unit tests
+
+gzip doesn't compress megabytes of zeros efficiently - see Mark Adlers reply on
+https://stackoverflow.com/questions/16792189/gzip-compression-ratio-for-zeros
+
+bzip2 works well, and can be unpacked by `libarchive` in unit tests:
+
+    $ tar -cvf - qv5 | bzip2 --best > qv5-sample-input.tar.bz2
+
