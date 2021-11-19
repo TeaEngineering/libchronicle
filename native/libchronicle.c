@@ -475,7 +475,7 @@ int parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) 
     tailer_t* tailer = (tailer_t*)userdata;
     if (debug) printbuf((char*)base, lim);
     // prep args and fire callback
-    if (tailer->dispatcher && index > tailer->dispatch_after) {
+    if (index > tailer->dispatch_after) {
         COBJ msg = tailer->queue->parser(base, lim);
         if (debug && msg==NULL) printf("chronicle: caution at index %" PRIu64 " parse function returned NULL, skipping\n", index);
 
@@ -484,7 +484,9 @@ int parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) 
             tailer->collected_value = msg;
             return 7;
         }
-        return tailer->dispatcher(tailer->dispatch_ctx, index, msg);
+        if (tailer->dispatcher) {
+            return tailer->dispatcher(tailer->dispatch_ctx, index, msg);
+        }
     }
     return 0;
 }
@@ -1048,13 +1050,12 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
 
 tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatch_ctx, uint64_t index) {
     if (queue == NULL) return chronicle_perr("queue is not valid");
-    if (dispatcher == NULL) return chronicle_perr("dispatcher is not a callback");
 
     // decompose index into cycle (file) and seqnum within file
     int cycle = index >> queue->cycle_shift;
     int seqnum = index & queue->seqnum_mask;
 
-    printf("shmipc: tailer added index=%" PRIu64 " (cycle=%d seqnum=%d)\n", index, cycle, seqnum);
+    printf("shmipc: tailer added index=%" PRIu64 " (cycle=%d seqnum=%d) cb=%p\n", index, cycle, seqnum, dispatcher);
     if (cycle < queue->lowest_cycle) {
         index = queue->lowest_cycle << queue->cycle_shift;
     }
