@@ -45,7 +45,7 @@ typedef struct wirecallbacks {
     void* userdata;
 } wirecallbacks_t;
 
-void parse_wire(unsigned char* base, int lim, wirecallbacks_t* cbs);
+void wire_parse(unsigned char* base, int lim, wirecallbacks_t* cbs);
 
 // wire writer
 // create a wirepad using wirepad_init, then write headers and fields
