@@ -155,8 +155,8 @@ void wire_parse(unsigned char* base, int lim, wirecallbacks_t* cbs) {
                 p += field_text_sz;
                 break;
             case 0xB8: // Text any length
+                p+= read_stop_uint(p, &field_text_sz);
                 field_text = (char*)p;
-                field_text_sz = control - 0xE0;
                 if (wire_trace) printf(" Field %.*s = %.*s (text)\n", (int)field_name_sz, field_name, field_text_sz, field_text);
                 if (cbs->field_char) cbs->field_char(field_name, field_name_sz, field_text, field_text_sz, cbs);
                 p += field_text_sz;
