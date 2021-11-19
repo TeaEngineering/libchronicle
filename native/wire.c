@@ -38,7 +38,7 @@ int read_stop_uint(unsigned char* p, int *stopsz) {
 }
 
 // used for reading index and header structures as well as directory-index.cq4t
-void parse_wire(unsigned char* base, int lim, wirecallbacks_t* cbs) {
+void wire_parse(unsigned char* base, int lim, wirecallbacks_t* cbs) {
     // constants from
     // https://github.com/OpenHFT/Chronicle-Wire/blob/master/src/main/java/net/openhft/chronicle/wire/BinaryWireCode.java
     // decoder details
@@ -436,7 +436,7 @@ void wirepad_nest_exit(wirepad_t* pad) {
 }
 
 void wirepad_parse(wirepad_t* pad, wirecallbacks_t* cbs) {
-    parse_wire(pad->base, pad->pos-pad->base, cbs);
+    wire_parse(pad->base, pad->pos-pad->base, cbs);
 }
 
 void wirepad_dump(wirepad_t* pad) {

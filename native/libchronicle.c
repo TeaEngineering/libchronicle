@@ -436,7 +436,7 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
             sz = (header & HD_MASK_LENGTH);
             if (debug) printf(" @%p metadata size %x\n", base, sz);
             if (base+4+sz >= extent) return 3;
-            parse_wire(base+4, sz, hcbs);
+            wire_parse(base+4, sz, hcbs);
             // EventName  header
             //   switch to header parser
         } else if ((header & HD_MASK_META) == HD_EOF) {
@@ -465,7 +465,7 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
 
 // parse data callback dispatching to wire.h parser
 int parse_wire_data(unsigned char* base, int lim, uint64_t index, void* cbs) {
-    parse_wire(base, lim, (wirecallbacks_t*)cbs);
+    wire_parse(base, lim, (wirecallbacks_t*)cbs);
     return 0;
 }
 
