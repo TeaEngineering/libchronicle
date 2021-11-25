@@ -20,7 +20,7 @@ Chronicle Queue v5
 * a v5 queue with no data written can be a metadata.cq4t with no queue files (relax queuefile existance checks)
 * SingleChronicleQueueBuilder writeText() seems to be writing a one-byte prefix to the data
 * data/metadata messages are now 4 byte aligned (see `pad4` in `parse_queue_block`) so the header CAS read is always aligned
-
+* only appenders can write metadata and index pages (no lazy indexing - libchronicle never supported it)
 
 Chronicle Queue v4
 ----
