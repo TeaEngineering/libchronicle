@@ -414,7 +414,7 @@ queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cap
 //   (7  collected value - from parse_data)
 // if any entries are read the values at basep and indexp are updated
 // if parse_data returns non-zero, we pause parsing after the current item
-int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* extent, wirecallbacks_t* hcbs, datacallback_f parse_data, void* userdata) {
+int parse_queue_block(queue_t *queue, unsigned char** basep, uint64_t *indexp, unsigned char* extent, wirecallbacks_t* hcbs, datacallback_f parse_data, void* userdata) {
     uint32_t header;
     int sz;
     unsigned char* base = *basep;
@@ -456,7 +456,7 @@ int parse_queue_block(unsigned char** basep, uint64_t *indexp, unsigned char* ex
             index++;
             *indexp = index;
         }
-        int pad4 = -sz & 0x03;
+        int pad4 = (queue->version < 5) ? 0 : -sz & 0x03;
         base = base + 4 + sz + pad4;
         *basep = base;
     }
@@ -578,7 +578,7 @@ void parse_dirlist(queue_t* queue) {
     hcbs.field_uint8 = &handle_dirlist_uint8;
     hcbs.field_char = &handle_dirlist_text;
     hcbs.userdata = queue;
-    parse_queue_block(&base, &index, base+lim, &hcbs, &parse_wire_data, &cbs);
+    parse_queue_block(queue, &base, &index, base+lim, &hcbs, &parse_wire_data, &cbs);
 }
 
 void parse_queuefile_meta(unsigned char* base, int limit, queue_t* queue) {
@@ -591,7 +591,7 @@ void parse_queuefile_meta(unsigned char* base, int limit, queue_t* queue) {
     hcbs.field_uint8 =  &handle_qf_uint8;
     hcbs.field_char = &handle_qf_text;
     hcbs.userdata = queue;
-    parse_queue_block(&base, &index, base+limit, &hcbs, NULL, NULL);
+    parse_queue_block(queue, &base, &index, base+limit, &hcbs, NULL, NULL);
 }
 
 void chronicle_peek() {
@@ -755,7 +755,7 @@ int chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         //    4  hit data with no data parser (won't happen)
         //    7  collected item
         // if any entries are read the values at basep and indexp are updated
-        int s = parse_queue_block(&basep, &index, extent, &hcbs, parse_data_cb, tailer);
+        int s = parse_queue_block(queue, &basep, &index, extent, &hcbs, parse_data_cb, tailer);
         //printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
 
         if (s == 3 && basep == basep_old) {
