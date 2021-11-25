@@ -86,12 +86,54 @@ static void queue_cqv5_sample_input(void **state) {
     free(test_queuedir);
 }
 
+void* parse_cqv4_textonly(unsigned char* base, int lim) {
+    char* text_result = strndup((const char*) base, lim);
+    return text_result;
+}
+
+static void queue_cqv4_sample_input(void **state) {
+    char* test_queuedir = unpack_test_data("cqv4-sample-input.tar.bz2", argv0);
+    assert_non_null(test_queuedir);
+
+    char* queuedir;
+    asprintf(&queuedir, "%s/cqv4", test_queuedir);
+    queue_t* queue = chronicle_init(queuedir, &parse_cqv4_textonly, &wirepad_sizeof, &wirepad_write);
+    assert_non_null(queue);
+
+    tailer_t* tailer = chronicle_tailer(queue, NULL, NULL, 0);
+    assert_non_null(tailer);
+
+    char* p = (char*)chronicle_collect(tailer);
+    assert_non_null(p);
+    assert_string_equal("one", p);
+    free(p);
+
+    p = (char*)chronicle_collect(tailer);
+    assert_string_equal("two", p);
+    free(p);
+
+    p = (char*)chronicle_collect(tailer);
+    assert_string_equal("three", p);
+    free(p);
+
+    p = (char*)chronicle_collect(tailer);
+    assert_string_equal("a much longer item that will need encoding as variable length text", p);
+    free(p);
+
+    chronicle_close(queue);
+
+    delete_test_data(test_queuedir);
+    free(queuedir);
+    free(test_queuedir);
+}
+
 int main(int argc, char* argv[]) {
     argv0 = argv[0];
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(queue_not_exist),
         cmocka_unit_test(queue_is_file),
         cmocka_unit_test(queue_empty_dir_no_ver),
+        cmocka_unit_test(queue_cqv4_sample_input),
         cmocka_unit_test(queue_cqv5_sample_input),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
