@@ -911,7 +911,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
         tailer->dispatcher = NULL;
         tailer->state = 5;
         tailer->mmap_protection = PROT_READ | PROT_WRITE;
-
+        tailer->queue = queue;
         queue->appender = tailer;
 
         // re-open directory-listing mapping in read-write mode

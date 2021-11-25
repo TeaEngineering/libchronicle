@@ -79,11 +79,20 @@ static void queue_cqv5_sample_input(void **state) {
     assert_string_equal("a much longer item that will need encoding as variable length text", p);
     free(p);
 
+    wirepad_t* pad = wirepad_init(1024);
+    wirepad_text(pad, "four five");
+    chronicle_append(queue, pad);
+
+    p = (char*)chronicle_collect(tailer);
+    assert_string_equal("four five", p);
+    free(p);
+
     chronicle_close(queue);
 
     delete_test_data(test_queuedir);
     free(queuedir);
     free(test_queuedir);
+    wirepad_free(pad);
 }
 
 void* parse_cqv4_textonly(unsigned char* base, int lim) {

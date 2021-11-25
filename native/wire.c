@@ -470,9 +470,8 @@ size_t wirepad_sizeof(void* msg) {
 
 size_t wirepad_write(unsigned char* base, size_t sz, void* msg) {
     wirepad_t* pad = (wirepad_t*)msg;
-    printf("wirepad_write needs memcpy\n");
-    abort();
-    return pad->pos - pad->base;
+    memcpy(base, pad->base, sz);
+    return sz;
 }
 
 // parser
