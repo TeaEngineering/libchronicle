@@ -13,7 +13,7 @@ Then
 
     $ mvn dependency:copy-dependencies
     $ mvn package
-    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.InputMain q1 < sample.input
+    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.InputMain cqv5 < sample.input
     type something
     [81346680586240] one
     [81346680586241] two
@@ -49,13 +49,27 @@ libchronicle write, Java read:
     $ ../native/obj/shmmain :q1/ -d
     $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.OutputMain q1
 
-
-### Adding test data for unit tests
+## Adding test data for unit tests
 
 gzip doesn't compress megabytes of zeros efficiently - see Mark Adlers reply on
 https://stackoverflow.com/questions/16792189/gzip-compression-ratio-for-zeros
 
 bzip2 works well, and can be unpacked by `libarchive` in unit tests:
 
-    $ tar -cvf - qv5 | bzip2 --best > qv5-sample-input.tar.bz2
+## Generating CQV5 test data
+
+Build as above then:
+
+    $ java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-5.20.102.jar mains.InputMain qv5 < sample.input
+    $ tar -cvf - qv5 | bzip2 --best > ../native/test/cqv5-sample-input.tar.bz2
+
+
+### Generating CQV4 test data
+
+CQV4 needs quite an old JVM to run, JDK 10 is the maximum. Under JDK11, or without the extra `--add-exports` options it throws `java.lang.NoSuchFieldException: reservedMemory` due to the reflection calls failing. I've included a known good POM file for this combination:
+
+    $ export JAVA_HOME=~/java/jdk-10.0.2/
+    $ mvn -B clean dependency:copy-dependencies package --file pom.cqv4.xml
+    $ $JAVA_HOME/bin/java -cp target/java-1.0-SNAPSHOT.jar:target/dependency/chronicle-queue-4.6.109.jar --add-exports java.base/jdk.internal.ref=ALL-UNNAMED --add-exports java.base/jdk.internal.misc=ALL-UNNAMED --add-exports java.base/sun.nio.ch=ALL-UNNAMED mains.InputMain cqv4 < sample.input
+    $ tar -cvf - cqv4 | bzip2 --best > ../native/test/cqv4-sample-input.tar.bz2
 
