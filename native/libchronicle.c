@@ -284,19 +284,21 @@ queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cap
     if (x != 0) {
         if (debug) printf("shmipc: v4 dir listing: %d %s\n", x, cerr_msg);
         free(queue->dirlist_name);
+
+        // probe V5 - metadata.cq4t
+        asprintf(&queue->dirlist_name, "%s/metadata.cq4t", queue->dirname);
+        x = directory_listing_reopen(queue, O_RDONLY, PROT_READ);
+        if (x != 0) {
+            if (debug) printf("shmipc: v5 dir listing: %d %s\n", x, cerr_msg);
+            free(queue->dirlist_name);
+        } else {
+            queue->version = 5;
+        }
+
     } else {
         queue->version = 4;
     }
 
-    // probe V5 - metadata.cq4t
-    asprintf(&queue->dirlist_name, "%s/metadata.cq4t", queue->dirname);
-    x = directory_listing_reopen(queue, O_RDONLY, PROT_READ);
-    if (x != 0) {
-        if (debug) printf("shmipc: v5 dir listing: %d %s\n", x, cerr_msg);
-        free(queue->dirlist_name);
-    } else {
-        queue->version = 5;
-    }
 
     // Does queue dir contain some .cq4 files?
     // for V5 it is OK to have empty directory
