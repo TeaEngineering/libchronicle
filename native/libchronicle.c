@@ -518,6 +518,7 @@ void handle_dirlist_uint32(char* buf, int sz, uint32_t data, wirecallbacks_t* cb
 void handle_dirlist_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "epoch", sz) == 0) {
+        if (debug) printf("  v5 roll_epoch set to %x\n", data);
         queue->roll_epoch = data;
     }
 }
@@ -551,6 +552,9 @@ void handle_qf_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "indexSpacing", sz) == 0) {
         queue->index_spacing = data;
+    } else if (strncmp(buf, "epoch", sz) == 0) {
+        if (debug) printf(" v4 roll_epoch set to %x\n", data);
+        queue->roll_epoch = data;
     }
 }
 
