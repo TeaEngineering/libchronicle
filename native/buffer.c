@@ -21,11 +21,10 @@
 
 // Outputs non-printable characters as octal, which allows the resulting
 // string to be a valid C-string constant.
-void printbuf(char* c, int n) {
+void printbuf(char* buf, int sz) {
     printf("unsigned char* buf=\"");
-    for (int i = 0; i < n; i++) {
-    switch (c[i]) {
-
+    for (int i = 0; i < sz; i++) {
+    switch (buf[i]) {
         case '\n':
             printf("\\n");
             break;
@@ -39,10 +38,10 @@ void printbuf(char* c, int n) {
             printf("\\\\");
             break;
         default:
-            if ((c[i] < 0x20) || (c[i] > 0x7f)) {
-                printf("\\%03o", (unsigned char)c[i]);
+            if (buf[i] >= 32 && buf[i] < 127) {
+                printf("%c", buf[i]);
             } else {
-                printf("%c", c[i]);
+                printf("\\%03o", (unsigned char)buf[i]);
             }
         break;
       }
