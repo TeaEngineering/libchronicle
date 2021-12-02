@@ -21,34 +21,46 @@
 
 // Outputs non-printable characters as octal, which allows the resulting
 // string to be a valid C-string constant.
-void printbuf(char* buf, int sz) {
-    printf("unsigned char* buf=\"");
+char* cfmtbuf(char* buf, int sz) {
+    char* c = malloc(4*sz + 3);
+    char* p = c;
+    *(p++) = '"';
     for (int i = 0; i < sz; i++) {
     switch (buf[i]) {
         case '\n':
-            printf("\\n");
+            *(p++) = '\\'; *(p++) = 'n';
             break;
         case '\r':
-            printf("\\r");
+            *(p++) = '\\'; *(p++) = 'r';
             break;
         case '\t':
-            printf("\\t");
+            *(p++) = '\\'; *(p++) = 't';
             break;
         case '\\':
-            printf("\\\\");
+            *(p++) = '\\'; *(p++) = '\\';
             break;
         default:
             if (buf[i] >= 32 && buf[i] < 127) {
-                printf("%c", buf[i]);
+                *(p++) = buf[i];
             } else {
-                printf("\\%03o", (unsigned char)buf[i]);
+                *(p++) = '\\';
+                *(p++) = '0' + (7 & (buf[i] >> 6));
+                *(p++) = '0' + (7 & (buf[i] >> 3));
+                *(p++) = '0' + (7 & (buf[i] >> 0));
             }
         break;
       }
     }
-    printf("\"\n");
+    *(p++) = '"';
+    *(p++) = 0;
+    return c;
 }
 
+void printbuf(char* buf, int sz) {
+    char* b = cfmtbuf(buf, sz);
+    printf("unsigned char* buf=%s\n", b);
+    free(b);
+}
 
 char* formatbuf(char* buf, int sz) {
     // nicely format a buffer to hex/ascii with a length offset. each 16 bytes

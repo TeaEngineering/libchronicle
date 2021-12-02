@@ -41,6 +41,18 @@ static void test_buffer_hello(void **state) {
         "000000b0 68 2e                                            h.               \n"
     );
     free(f);
+
+    f = cfmtbuf("hello", 5);
+    assert_string_equal(f, "\"hello\"");
+    free(f);
+
+    f = cfmtbuf("hi\nthe\000re", 9);
+    assert_string_equal(f, "\"hi\\nthe\\000re\"");
+    free(f);
+
+    f = cfmtbuf("\033\040-\176\177", 5);
+    assert_string_equal(f, "\"\\033 -~\\177\"");
+    free(f);
 }
 
 

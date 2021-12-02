@@ -15,7 +15,8 @@
 #ifndef FILE_LIBBUFFER_SEEN
 #define FILE_LIBBUFFER_SEEN
 
-void printbuf(char* c, int n);
+void printbuf(char* buf, int sz);
+char* cfmtbuf(char* buf, int sz);
 char* formatbuf(char* buf, int sz);
 
 #endif
