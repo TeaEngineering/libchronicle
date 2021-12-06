@@ -61,6 +61,12 @@ typedef int    (*cdispatch_f) (DISPATCH_CTX,uint64_t,COBJ);
 typedef struct queue queue_t;
 typedef struct tailer tailer_t;
 
+// collect structure - we complete values for the caller
+typedef struct {
+    COBJ msg;
+    size_t sz;
+    uint64_t index;
+} collected_t;
 
 queue_t*    chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cappend_f append_write);
 int         chronicle_close(queue_t* queue_delete);
@@ -79,6 +85,6 @@ void        chronicle_debug_tailer(queue_t* queue, tailer_t* tailer);
 uint64_t    chronicle_append(queue_t *queue, COBJ msg);
 uint64_t    chronicle_append_ts(queue_t *queue, COBJ msg, long ms);
 
-COBJ        chronicle_collect(tailer_t *tailer);
+COBJ        chronicle_collect(tailer_t *tailer, collected_t *collect);
 
 #endif

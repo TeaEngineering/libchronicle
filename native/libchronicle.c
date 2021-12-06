@@ -110,8 +110,7 @@ typedef struct tailer {
     cdispatch_f       dispatcher;
     void*             dispatch_ctx;
     // to support the 'collect' operation to wait and return next item, ignoring callback
-    int               collect;
-    COBJ              collected_value;
+    collected_t*      collect;
 
     int               mmap_protection; // PROT_READ etc.
 
@@ -483,7 +482,9 @@ int parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) 
 
         // if asked to return inline, we skip dispatcher callback
         if (tailer->collect) {
-            tailer->collected_value = msg;
+            tailer->collect->msg = msg;
+            tailer->collect->index = index;
+            tailer->collect->sz = lim;
             return 7;
         }
         if (tailer->dispatcher) {
@@ -1088,23 +1089,23 @@ tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatc
     return tailer;
 }
 
-COBJ chronicle_collect(tailer_t *tailer) {
+COBJ chronicle_collect(tailer_t *tailer, collected_t *collected) {
     if (tailer == NULL) return chronicle_perr("null tailer");
-    tailer->collect = 1;
+    if (collected == NULL) return chronicle_perr("null collected");
+    tailer->collect = collected;
 
     uint64_t delaycount = 0;
     peek_queue_modcount(tailer->queue);
     while (1) {
         int r = chronicle_peek_tailer(tailer->queue, tailer);
-        if (debug) printf("collect value returns %d and object %p\n", r, tailer->collected_value);
+        if (debug) printf("collect value returns %d into object %p\n", r, tailer->collect);
         if (r == 7) {
             break;
         }
         if (delaycount++ >> 20) usleep(delaycount >> 20);
     }
-    COBJ x = tailer->collected_value;
-    tailer->collected_value = NULL;
-    return x;
+    tailer->collect = NULL;
+    return collected->result;
 }
 
 void chronicle_tailer_close(tailer_t* tailer) {

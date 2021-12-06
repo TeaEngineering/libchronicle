@@ -193,8 +193,9 @@ K shmipc_collect(K taileri) {
     if (taileri->t != -KI) return krr("idx is not int");
     if (taileri->i < 0 || taileri->i >= tailer_handles_count) return krr("idx out of range");
     tailer_t* tailer = tailer_handles[taileri->i];
+    collected_t result;
 
-    K r = chronicle_collect(tailer);
+    K r = chronicle_collect(tailer, &result);
     return r;
 }
 
