@@ -65,10 +65,12 @@ static void queue_cqv5_sample_input(void **state) {
 
     tailer_t* tailer = chronicle_tailer(queue, NULL, NULL, 0);
     assert_non_null(tailer);
+    assert_int_equal(chronicle_tailer_state(tailer), TS_PEEK);
 
     char* p = (char*)chronicle_collect(tailer, &result);
     assert_string_equal("one", p);
     assert_int_equal(result.index, 0x4A0500000000);
+    assert_int_equal(chronicle_tailer_state(tailer), TS_COLLECTED);
     free(p);
 
     p = (char*)chronicle_collect(tailer, &result);
