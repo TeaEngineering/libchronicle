@@ -61,6 +61,17 @@ typedef int    (*cdispatch_f) (DISPATCH_CTX,uint64_t,COBJ);
 typedef struct queue queue_t;
 typedef struct tailer tailer_t;
 
+// return codes exposed via. chronicle_tailer_state
+//     0   awaiting next entry
+//     1   hit working
+//     2   missing queuefile indicated, awaiting advance or creation
+//     3   fstat failed
+//     4   mmap failed (probably fatal)
+//     5   not yet polled
+//     6   queuefile at fid needs extending on disk
+//     7   a value was collected
+typedef enum {TS_AWAITING_ENTRY, TS_BUSY, TS_AWAITING_QUEUEFILE, TS_E_STAT, TS_E_MMAP, TS_PEEK, TS_EXTEND_FAIL, TS_COLLECTED} tailstate_t;
+
 // collect structure - we complete values for the caller
 typedef struct {
     COBJ msg;
@@ -74,6 +85,8 @@ const char* chronicle_strerror();
 
 tailer_t*   chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, DISPATCH_CTX dispatch_ctx, uint64_t index);
 void        chronicle_tailer_close(tailer_t* tailer);
+tailstate_t chronicle_tailer_state(tailer_t* tailer);
+uint64_t    chronicle_tailer_index(tailer_t* tailer);
 
 void        chronicle_peek();
 void        chronicle_peek_queue(queue_t *queue);

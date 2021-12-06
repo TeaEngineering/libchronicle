@@ -96,6 +96,8 @@ const char* chronicle_strerror() {
     return cerr_msg;
 }
 
+const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?", "EXTEND_FAIL", "COLLECTED"};
+
 // structures
 
 typedef struct {
@@ -106,7 +108,7 @@ typedef struct {
 
 typedef struct tailer {
     uint64_t          dispatch_after; // for resume support
-    int               state;
+    tailstate_t       state;
     cdispatch_f       dispatcher;
     void*             dispatch_ctx;
     // to support the 'collect' operation to wait and return next item, ignoring callback
@@ -178,8 +180,10 @@ typedef struct queue {
     struct queue*     next;
 } queue_t;
 
-typedef int (*datacallback_f)(unsigned char*,int,uint64_t,void* userdata);
 
+typedef enum {QB_AWAITING_ENTRY, QB_BUSY, QB_REACHED_EOF, QB_NEED_EXTEND, QB_NULL_ITEM, QB_COLLECTED} parseqb_state_t;
+
+typedef parseqb_state_t (*datacallback_f)(unsigned char*,int,uint64_t,void* userdata);
 
 
 // paramaters that control behavior, not exposed for modification
@@ -415,13 +419,15 @@ queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cap
 //   (7  collected value - from parse_data)
 // if any entries are read the values at basep and indexp are updated
 // if parse_data returns non-zero, we pause parsing after the current item
-int parse_queue_block(queue_t *queue, unsigned char** basep, uint64_t *indexp, unsigned char* extent, wirecallbacks_t* hcbs, datacallback_f parse_data, void* userdata) {
+// typedef enum {QB_AWAITING_ENTRY, QB_BUSY, QB_REACHED_EOF, QB_NEED_EXTEND, QB_NULL_ITEM, QB_COLLECTED} parseqb_state_t;
+
+parseqb_state_t parse_queue_block(queue_t *queue, unsigned char** basep, uint64_t *indexp, unsigned char* extent, wirecallbacks_t* hcbs, datacallback_f parse_data, void* userdata) {
     uint32_t header;
     int sz;
     unsigned char* base = *basep;
     uint64_t index = *indexp;
-    int pd = 0;
-    while (!pd) {
+    parseqb_state_t pd = QB_AWAITING_ENTRY;
+    while (pd == QB_AWAITING_ENTRY) {
         if (base+4 >= extent) return 3;
         memcpy(&header, base, sizeof(header)); // relax, fn optimised away
         // no speculative fetches before the header is read
@@ -429,30 +435,29 @@ int parse_queue_block(queue_t *queue, unsigned char** basep, uint64_t *indexp, u
 
         if (header == HD_UNALLOCATED) {
             if (debug) printf(" %" PRIu64 " @%p unallocated\n", index, base);
-            return 0;
+            return QB_AWAITING_ENTRY;
         } else if ((header & HD_MASK_META) == HD_WORKING) {
             if (debug) printf(" @%p locked for writing by pid %d\n", base, header & HD_MASK_LENGTH);
-            return 1;
+            return QB_BUSY;
         } else if ((header & HD_MASK_META) == HD_METADATA) {
             sz = (header & HD_MASK_LENGTH);
             if (debug) printf(" @%p metadata size %x\n", base, sz);
-            if (base+4+sz >= extent) return 3;
+            if (base+4+sz >= extent) return QB_NEED_EXTEND;
             wire_parse(base+4, sz, hcbs);
             // EventName  header
             //   switch to header parser
         } else if ((header & HD_MASK_META) == HD_EOF) {
             if (debug) printf(" @%p EOF\n", base);
-            return 2;
+            return QB_REACHED_EOF;
         } else {
             sz = (header & HD_MASK_LENGTH);
             if (debug) printf(" %" PRIu64 " @%p data size %x\n", index, base, sz);
             if (parse_data) {
-                if (base+4+sz >= extent) return 3;
+                if (base+4+sz >= extent) return QB_NEED_EXTEND;
                 pd = parse_data(base+4, sz, index, userdata);
-
             } else {
                 // bail at first data message
-                return 4;
+                return QB_NULL_ITEM;
             }
             index++;
             *indexp = index;
@@ -465,14 +470,14 @@ int parse_queue_block(queue_t *queue, unsigned char** basep, uint64_t *indexp, u
 }
 
 // parse data callback dispatching to wire.h parser
-int parse_wire_data(unsigned char* base, int lim, uint64_t index, void* cbs) {
+parseqb_state_t parse_wire_data(unsigned char* base, int lim, uint64_t index, void* cbs) {
     wire_parse(base, lim, (wirecallbacks_t*)cbs);
-    return 0;
+    return QB_AWAITING_ENTRY;
 }
 
 
-// return 0 to continue dispaching, 7 to signal collected item
-int parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) {
+// return AWAITING_ENTRY to continue dispaching, COLLECTED to signal collected item
+parseqb_state_t parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) {
     tailer_t* tailer = (tailer_t*)userdata;
     if (debug) printbuf((char*)base, lim);
     // prep args and fire callback
@@ -485,13 +490,13 @@ int parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) 
             tailer->collect->msg = msg;
             tailer->collect->index = index;
             tailer->collect->sz = lim;
-            return 7;
+            return QB_COLLECTED;
         }
         if (tailer->dispatcher) {
             return tailer->dispatcher(tailer->dispatch_ctx, index, msg);
         }
     }
-    return 0;
+    return QB_AWAITING_ENTRY;
 }
 
 
@@ -645,18 +650,7 @@ void chronicle_peek_queue(queue_t *queue) {
     }
 }
 
-// return codes exposed via. tailer-> state
-//     0   awaiting next entry
-//     1   hit working
-//     2   missing queuefile indicated, awaiting advance or creation
-//     3   fstat failed
-//     4   mmap failed (probably fatal)
-//     5   not yet polled
-//     6   queuefile at fid needs extending on disk
-//     7   a value was collected
-const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?", "EXTEND_FAIL", "COLLECTED"};
-
-int chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
+tailstate_t chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
     // for each cycle file { for each block { for each entry { emit }}}
     // this method runs like a generator, suspended in the innermost
     // iteration when we hit the end of the file and pick up at the next peek()
@@ -694,7 +688,7 @@ int chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
                     tailer->qf_index = skip_to_index;
                     continue;
                 }
-                return 2;
+                return TS_AWAITING_QUEUEFILE;
             }
             tailer->qf_cycle_open = cycle;
 
@@ -723,10 +717,10 @@ int chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize) {
             if (debug) printf("shmmain: approaching file size limit, less than two blocks remain\n");
             if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
-                return 3;
+                return TS_E_STAT;
             // signal to extend queuefile iff we are an appending tailer
             if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize && tailer->mmap_protection != PROT_READ) {
-                return 6;
+                return TS_EXTEND_FAIL;
             }
         }
 
@@ -745,7 +739,7 @@ int chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
             if ((tailer->qf_buf = mmap(0, tailer->qf_mmapsz, tailer->mmap_protection, MAP_SHARED, tailer->qf_fd, tailer->qf_mmapoff)) == MAP_FAILED) {
                 printf("shmipc:  mmap failed %s %" PRIx64 " size %" PRIx64 " error=%s\n", tailer->qf_fn, tailer->qf_mmapoff, tailer->qf_mmapsz, strerror(errno));
                 tailer->qf_buf = NULL;
-                return 4;
+                return TS_E_MMAP;
             }
             printf("shmipc:  mmap offset %" PRIx64 " size %" PRIx64 " base=%p extent=%p\n", tailer->qf_mmapoff, tailer->qf_mmapsz, tailer->qf_buf, tailer->qf_buf+tailer->qf_mmapsz);
         }
@@ -762,10 +756,10 @@ int chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
         //    4  hit data with no data parser (won't happen)
         //    7  collected item
         // if any entries are read the values at basep and indexp are updated
-        int s = parse_queue_block(queue, &basep, &index, extent, &hcbs, parse_data_cb, tailer);
+        parseqb_state_t s = parse_queue_block(queue, &basep, &index, extent, &hcbs, parse_data_cb, tailer);
         //printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
 
-        if (s == 3 && basep == basep_old) {
+        if (s == QB_NEED_EXTEND && basep == basep_old) {
             queue_double_blocksize(queue);
         }
 
@@ -777,26 +771,26 @@ int chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
             tailer->qf_index = index;
         }
 
-        if (s == 1 || s == 7) return s;
+        if (s == QB_BUSY) return TS_BUSY;
+        if (s == QB_COLLECTED) return TS_COLLECTED;
 
-        if (s == 0) { // awaiting at end of queuefile
+        if (s == QB_AWAITING_ENTRY) { // awaiting at end of queuefile
             if (cycle < queue->highest_cycle-patch_cycles) { // allowed to fast-forward
                 uint64_t skip_to_index = (cycle + 1) << queue->cycle_shift;
                 printf("shmipc:  missing EOF for queuefile (cycle < highest_cycle-patch_cycles), bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, skip_to_index);
                 tailer->qf_index = skip_to_index;
                 continue;
             }
-            return s;
+            return TS_AWAITING_ENTRY;
         }
 
-        if (s == 2) {
+        if (s == QB_REACHED_EOF) {
             // we've read an EOF marker, so the next expected index is cycle++, seqnum=0
             uint64_t eof_cycle = ((tailer->qf_index >> queue->cycle_shift) + 1) << queue->cycle_shift;
             printf("shmipc:  hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, eof_cycle);
             tailer->qf_index = eof_cycle;
         }
     }
-    return 0;
 }
 
 int chronicle_peek_tailer(queue_t *queue, tailer_t *tailer) {
@@ -968,7 +962,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
             continue;
         }
 
-        if (r == 6) {
+        if (r == TS_EXTEND_FAIL) {
             // current queuefile has less than two blocks remaining, needs extending
             // should the extend fail, we are having disk issues, wait until fixed
             uint64_t extend_to = appender->qf_statbuf.st_size + qf_disk_sz;
@@ -989,7 +983,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
         // If the tailer returns 0, we are all set pointing to the next unwritten entry.
         // if we write to qf_buf and the state is not zero we'll hit sigbus etc, so sleep
         // and wait for availability.
-        if (r != 0) {
+        if (r != TS_AWAITING_ENTRY) {
             printf("shmipc: Cannot write in state %d, sleeping\n", r);
             sleep(1);
             continue;
@@ -1099,13 +1093,21 @@ COBJ chronicle_collect(tailer_t *tailer, collected_t *collected) {
     while (1) {
         int r = chronicle_peek_tailer(tailer->queue, tailer);
         if (debug) printf("collect value returns %d into object %p\n", r, tailer->collect);
-        if (r == 7) {
+        if (r == TS_COLLECTED) {
             break;
         }
         if (delaycount++ >> 20) usleep(delaycount >> 20);
     }
     tailer->collect = NULL;
-    return collected->result;
+    return collected->msg;
+}
+
+tailstate_t chronicle_tailer_state(tailer_t* tailer) {
+    return tailer->state;
+}
+
+uint64_t chronicle_tailer_index(tailer_t* tailer) {
+    return tailer->qf_index;
 }
 
 void chronicle_tailer_close(tailer_t* tailer) {
