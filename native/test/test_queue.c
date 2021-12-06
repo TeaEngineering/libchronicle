@@ -98,6 +98,7 @@ static void queue_cqv5_sample_input(void **state) {
     wirepad_clear(pad);
     wirepad_text(pad, "six");
     idx = chronicle_append_ts(queue, pad, 1637267400000L); // 20211118T203000
+    assert_int_equal(idx, 0x4A0500000005);  // easier to see cycle/index split in hex
 
     p = (char*)chronicle_collect(tailer, &result);
     assert_string_equal("four five", p);
@@ -105,6 +106,20 @@ static void queue_cqv5_sample_input(void **state) {
     p = (char*)chronicle_collect(tailer, &result);
     assert_string_equal("six", p);
     free(p);
+
+    // add a new tailer starting from midway through
+    tailer_t* tailer2 = chronicle_tailer(queue, NULL, NULL, 0x4A0500000003);
+    p = (char*)chronicle_collect(tailer2, &result);
+    assert_int_equal(result.index, 0x4A0500000003);
+    assert_string_equal("a much longer item that will need encoding as variable length text", p);
+    free(p);
+
+    chronicle_collect(tailer2, &result);
+    assert_string_equal("four five", result.msg);
+    free(result.msg);
+    chronicle_collect(tailer2, &result);
+    assert_string_equal("six", result.msg);
+    free(result.msg);
 
     chronicle_close(queue);
 
