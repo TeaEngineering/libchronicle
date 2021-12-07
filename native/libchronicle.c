@@ -133,6 +133,7 @@ typedef struct tailer {
     struct queue*     queue;
 
     struct tailer*    next;
+    struct tailer*    prev;
 } tailer_t;
 
 typedef struct queue {
@@ -1077,6 +1078,8 @@ tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatc
     tailer->mmap_protection = PROT_READ;
 
     tailer->next = queue->tailers; // linked list
+    tailer->prev = NULL;
+    if (queue->tailers) queue->tailers->prev = tailer;
     queue->tailers = tailer;
 
     tailer->queue = queue; // parent pointer
@@ -1119,6 +1122,15 @@ void chronicle_tailer_close(tailer_t* tailer) {
     }
     if (tailer->qf_fd) { // if open() open...
         close(tailer->qf_fd);
+    }
+    // unlink ourselves from doubly-linked chain and update parent pointer if we were first
+    if (tailer->next) {
+        tailer->next->prev = tailer->prev;
+    }
+    if (tailer->prev) {
+        tailer->prev->next = tailer->next;
+    } else if (tailer->queue->tailers == tailer) {
+        tailer->queue->tailers = tailer->next;
     }
     free(tailer);
 }
