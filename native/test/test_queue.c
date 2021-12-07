@@ -107,6 +107,8 @@ static void queue_cqv5_sample_input(void **state) {
     assert_string_equal("six", p);
     free(p);
 
+    chronicle_tailer_close(tailer);
+
     // add a new tailer starting from midway through
     tailer_t* tailer2 = chronicle_tailer(queue, NULL, NULL, 0x4A0500000003);
     p = (char*)chronicle_collect(tailer2, &result);
