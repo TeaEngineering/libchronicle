@@ -920,18 +920,6 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
     }
     tailer_t* appender = queue->appender;
 
-
-    // if given a clock, use this to switch cycle
-    // which may be higher that maxCycle, in which case we need to poke the directory-listing
-    // TODO: move inside write loop to trigger EOF
-    if (ms > 0) {
-        uint64_t cyc = (ms - queue->roll_epoch) / queue->roll_length;
-        if (cyc != appender->qf_index >> queue->cycle_shift) {
-            printf("shmipc: appender setting cycle from timestamp: current %" PRIu64 " proposed %" PRIu64 "\n", appender->qf_index >> queue->cycle_shift, cyc);
-            appender->qf_index = cyc << queue->cycle_shift;
-        }
-    }
-
     // poll the appender
     while (1) {
         int r = chronicle_peek_tailer(queue, appender);
@@ -947,7 +935,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
             char* fn_buf;
             asprintf(&fn_buf, "%s.%d.tmp", appender->qf_fn, pid_header);
 
-            // if queuefile_init fails via. krr, re-throw the error and abort the write
+            // if queuefile_init fails, re-throw the error and abort the write
             if (queuefile_init(fn_buf, queue) != 0) return -1;
 
             if (rename(fn_buf, appender->qf_fn) != 0) {
@@ -958,6 +946,13 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
             }
             printf("renamed %s to %s\n", fn_buf, appender->qf_fn);
             free(fn_buf);
+
+            // if our new file higher than highest_cycle, inform listeners by bumping modcount
+            uint64_t cyc = appender->qf_index >> queue->cycle_shift;
+            if (cyc > queue->highest_cycle) {
+                queue->highest_cycle = cyc;
+                poke_queue_modcount(queue);
+            }
 
             // rename worked, we can now re-try the peek_tailer
             continue;
@@ -1012,6 +1007,20 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
         if (ret == HD_UNALLOCATED) {
             asm volatile ("mfence" ::: "memory");
 
+            // if given a clock, test if we should write EOF and advance cycle
+            if (ms > 0) {
+                uint64_t cyc = (ms - queue->roll_epoch) / queue->roll_length;
+                if (cyc > appender->qf_index >> queue->cycle_shift) {
+                    printf("shmipc: appender setting cycle from timestamp: current %" PRIu64 " proposed %" PRIu64 "\n", appender->qf_index >> queue->cycle_shift, cyc);
+                    appender->qf_index = cyc << queue->cycle_shift;
+
+                    printf("shmipc: got write lock, writing EOF to start roll\n");
+                    uint32_t header = HD_EOF;
+                    memcpy(ptr, &header, sizeof(header));
+                    continue; // retry write in next queuefile
+                }
+            }
+
             // Java does not patch EOF on prev files if it is down during the roll, it
             // just starts a new file. As a workaround their readers 'timeout' the wait for EOF
             // if a higher cycle is known for the queue. I'd like to be as correct as possible, so
@@ -1038,14 +1047,6 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
         printf("shmipc: write lock failed, peeking again\n");
         sleep(1);
     }
-
-    // if we've rolled a new file,inform listeners by bumping modcount
-    uint64_t cyc = appender->qf_index >> queue->cycle_shift;
-    if (cyc > queue->highest_cycle) {
-        queue->highest_cycle = cyc;
-        poke_queue_modcount(queue);
-    }
-
 
     return appender->qf_index;
 }
