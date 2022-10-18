@@ -94,6 +94,6 @@ void*       wire_parse_textonly(unsigned char* base, int lim);
 // sizeof_f and append_f where the object to be written is a wirepad_t
 // which is cast down to void* here for ease of use with libchronicle
 size_t      wirepad_sizeof(void* pad);
-size_t      wirepad_write(unsigned char* base, size_t sz, void* pad);
+void        wirepad_write(unsigned char* base, void* pad, size_t sz);
 
 #endif

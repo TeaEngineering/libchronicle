@@ -60,7 +60,7 @@ A chronicle-queue has no single controlling broker process, the operating system
 
 Multiple appenders, multiple tailers are supported, can be added and removed at will so long as all on
 the same machine. All writes resolve into total order which is preserved on replay. Message length must
-pack into 30 bits, so the maximum size of any individually sequenced payload is `(1<<31)-1` bytes, or 1023 Mb. Typical IPC latency 1us, depending on frequency of polling.
+be positive and pack into 30 bits, so the maximum size of any individually sequenced payload is `(1<<31)-1` bytes, or 1023 Mb. Typical IPC latency 1us, depending on frequency of polling.
 
 Each persisted message is identified by a sequential 64-bit index value. Settings control how the 64-bit index value is interpreted, and Chronicle Queue ships with several built-in schemes (`RollCycles`) that split the 64-bit value into two parts at a particular bit position. Upper bits are known as the 'cycle' and the remainder are the 'seqnum'. Cycle values map to a particular queuefile on disk, whilst seqnum indexes the data message within the file.
 

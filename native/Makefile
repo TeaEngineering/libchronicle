@@ -21,7 +21,7 @@ DEPS=k.h wire.h wire.c libchronicle.h libchronicle.c buffer.h buffer.c
 
 tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
 testsok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
-all: obj/hpet.so obj/shmmain obj/shmexample obj/shmipc.so $(tests)
+all: obj/hpet.so obj/shmmain obj/shm_example_reader obj/shm_example_writer obj/shmipc.so $(tests)
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
@@ -41,7 +41,7 @@ $(ODIR)/fuzzmain: fuzzmain.c shmipc.c mock_k.h $(DEPS)
 $(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
-$(ODIR)/shmexample: shmexample.c $(DEPS)
+$(ODIR)/shm_example%: shm_example%.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
 coverage: obj/shmcov

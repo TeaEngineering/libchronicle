@@ -257,7 +257,7 @@ void queue_double_blocksize(queue_t* queue) {
 }
 
 
-queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cappend_f append_write) {
+queue_t* chronicle_init(char* dir) {
     char* debug_env = getenv("SHMIPC_DEBUG");
     debug = (debug_env == NULL) ? 0 : strcmp(debug_env, "1") == 0;
     char* wiretrace_env = getenv("SHMIPC_WIRETRACE");
@@ -380,13 +380,10 @@ queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cap
     // TODO: Logic from RollCycles.java ensures rollover occurs before we run out of index2index pages?
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
 
-    // verify user-specified parser for data segments
-    if (!parser) return chronicle_perr("NULL parser");
-    if (!append_sizeof) return chronicle_perr("NULL append_sizeof");
-    if (!append_write) return chronicle_perr("NULL append_write");
-    queue->parser = parser;
-    queue->append_sizeof = append_sizeof;
-    queue->append_write = append_write;
+    // wire up default 'text' parsers for data segments
+    queue->parser = &chronicle_decoder_default_parse;
+    queue->append_sizeof = &chronicle_encoder_default_sizeof;
+    queue->append_write = &chronicle_encoder_default_write;
 
     // Good to use
     queue->next = queue_head;
@@ -409,6 +406,18 @@ queue_t* chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cap
 //unwind_2:
     free(queue);
     return NULL;
+}
+
+void chronicle_decoder(queue_t *queue, cparse_f parser) {
+    if (debug & !parser) printf("chronicle: setting NULL parser");
+    queue->parser = parser;
+}
+
+void chronicle_encoder(queue_t *queue, csizeof_f append_sizeof, cappend_f append_write) {
+    if (debug & !append_sizeof) printf("chronicle: setting NULL append_sizeof");
+    if (debug & !append_write) printf("chronicle: setting NULL append_write");
+    queue->append_sizeof = append_sizeof;
+    queue->append_write = append_write;
 }
 
 // return codes
@@ -1033,7 +1042,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
                 continue; // retry write in next queuefile
             }
 
-            write_sz = queue->append_write(ptr+4, write_sz, msg);
+            queue->append_write(ptr+4, msg, write_sz);
 
             asm volatile ("mfence" ::: "memory");
             uint32_t header = write_sz & HD_MASK_LENGTH;
@@ -1227,4 +1236,18 @@ int directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
         return chronicle_err("dirlist parse hdr ptr fail");
     }
     return 0;
+}
+
+COBJ chronicle_decoder_default_parse(unsigned char* base, int lim) {
+    char* msg = calloc(1, lim+1);
+    memcpy(msg, base, lim);
+    return msg;
+}
+
+size_t chronicle_encoder_default_sizeof(COBJ msg) {
+    return strlen(msg);
+}
+
+void chronicle_encoder_default_write(unsigned char* base, COBJ msg, size_t sz) {
+    memcpy(base, msg, sz);
 }

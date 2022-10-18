@@ -76,10 +76,9 @@ COBJ parse_kx(unsigned char* base, int lim) {
 
 // the encoding via. b9 happens in shmipc_append, so here we just
 // write the bytes
-size_t append_kx(unsigned char* base, size_t lim, COBJ msg) {
+void append_kx(unsigned char* base, COBJ msg, size_t lim) {
     K m = (K)msg;
     memcpy(base, (char*)m->G0, m->n);
-    return m->n;
 }
 
 size_t sizeof_kx(COBJ msg) {
@@ -120,12 +119,14 @@ K shmipc_init(K dir, K parser) {
     //     return krr("bad format: supports `kx and `text");
     // }
 
-    queue_t* queue;
     char* dirs = &dir->s[1];
+    queue_t* queue = chronicle_init(dirs);
     if (strncmp(parser->s, "text", parser->n) == 0) {
-        queue = chronicle_init(dirs, &parse_kx, &sizeof_kx, &append_kx);
+        chronicle_decoder(queue, &parse_kx);
+        chronicle_encoder(queue, &sizeof_kx, &append_kx);
     } else if (strncmp(parser->s, "kx", parser->n) == 0) {
-        queue = chronicle_init(dirs, &parse_kx, &sizeof_kx, &append_kx);
+        chronicle_decoder(queue, &parse_kx);
+        chronicle_encoder(queue, &sizeof_kx, &append_kx);
     } else {
         return krr("bad format: supports `kx and `text");
     }
