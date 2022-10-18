@@ -13,7 +13,9 @@ size_t sizeof_msg(void* msg) {
 
 int main(const int argc, char **argv) {
     queue_t* queue = chronicle_init(argv[1]);
-    chronicle_encoder(queue, &sizeof_msg, &append_msg);
+    chronicle_set_encoder(queue, &sizeof_msg, &append_msg);
+    if (chronicle_open(queue) != 0) exit(-1);
+
     char line[1024];
     while (1) {
         char* g = fgets(line, 1024, stdin);
@@ -22,5 +24,5 @@ int main(const int argc, char **argv) {
         long int index = chronicle_append(queue, g);
         printf("[%" PRIu64 "] %s\n", index, (char*)g);
     }
-    chronicle_close(queue);
+    chronicle_cleanup(queue);
 }

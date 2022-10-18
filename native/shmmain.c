@@ -81,8 +81,14 @@ int main(const int argc, char **argv) {
 
     char* dir = argv[optind];
     queue_t* queue = chronicle_init(dir);
-    chronicle_encoder(queue, &wirepad_sizeof, &wirepad_write);
-    chronicle_decoder(queue, &wire_parse_textonly);
+    chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    chronicle_set_decoder(queue, &wire_parse_textonly);
+
+    if (chronicle_open(queue) != 0) {
+        printf("failed to open %s", chronicle_strerror());
+        exit(-1);
+    }
+
     wirepad_t* pad = wirepad_init(1024);
 
     chronicle_tailer(queue, &print_msg, NULL, index);
@@ -102,6 +108,6 @@ int main(const int argc, char **argv) {
 
     if (verboseflag) chronicle_debug();
 
-    chronicle_close(queue);
+    chronicle_cleanup(queue);
     return 0;
 }

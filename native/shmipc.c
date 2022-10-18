@@ -122,14 +122,15 @@ K shmipc_init(K dir, K parser) {
     char* dirs = &dir->s[1];
     queue_t* queue = chronicle_init(dirs);
     if (strncmp(parser->s, "text", parser->n) == 0) {
-        chronicle_decoder(queue, &parse_kx);
-        chronicle_encoder(queue, &sizeof_kx, &append_kx);
+        chronicle_set_decoder(queue, &parse_kx);
+        chronicle_set_encoder(queue, &sizeof_kx, &append_kx);
     } else if (strncmp(parser->s, "kx", parser->n) == 0) {
-        chronicle_decoder(queue, &parse_kx);
-        chronicle_encoder(queue, &sizeof_kx, &append_kx);
+        chronicle_set_decoder(queue, &parse_kx);
+        chronicle_set_encoder(queue, &sizeof_kx, &append_kx);
     } else {
         return krr("bad format: supports `kx and `text");
     }
+    chronicle_open(queue);
 
     int handle = -1;
     if (queue) {
@@ -207,7 +208,7 @@ K shmipc_close(K queuei) {
     if (queue == NULL) return krr("queue already closed");
 
     queue_handles[queuei->i] = NULL;
-    int r = chronicle_close(queue);
+    int r = chronicle_cleanup(queue);
 
     return kj(r);
 }

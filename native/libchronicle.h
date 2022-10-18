@@ -40,6 +40,15 @@
 #define HD_MASK_LENGTH 0x3FFFFFFF
 #define HD_MASK_META   HD_EOF
 
+// chronicle_init flags values (OR values together)
+#define CHRONICLE_FLAGS_ANY
+#define CHRONICLE_FLAGS_V4
+#define CHRONICLE_FLAGS_V5
+
+#define CHRONICLE_FLAGS_RW
+#define CHRONICLE_FLAGS_CREATE
+
+
 
 // Public interface
 // your glue code will need to cast COBJ in callbacks, by implmenting
@@ -80,14 +89,18 @@ typedef struct {
 } collected_t;
 
 queue_t*    chronicle_init(char* dir);
-void        chronicle_encoder(queue_t* queue, csizeof_f append_sizeof, cappend_f append_write);
-void        chronicle_decoder(queue_t* queue, cparse_f parser);
+void        chronicle_set_version(queue_t* queue, int version);
+void        chronicle_set_roll_scheme(queue_t* queue, char* scheme);
+void        chronicle_set_encoder(queue_t* queue, csizeof_f append_sizeof, cappend_f append_write);
+void        chronicle_set_decoder(queue_t* queue, cparse_f parser);
+void        chronicle_set_create(queue_t* queue, int create);
+int         chronicle_open(queue_t* queue);
+int         chronicle_cleanup(queue_t* queue);
 
 COBJ        chronicle_decoder_default_parse(unsigned char*, int);
 size_t      chronicle_encoder_default_sizeof(COBJ);
 void        chronicle_encoder_default_write(unsigned char*,COBJ,size_t);
 
-int         chronicle_close(queue_t* queue);
 const char* chronicle_strerror();
 
 tailer_t*   chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, DISPATCH_CTX dispatch_ctx, uint64_t index);

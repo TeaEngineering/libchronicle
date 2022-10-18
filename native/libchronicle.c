@@ -265,22 +265,36 @@ queue_t* chronicle_init(char* dir) {
 
     pid_header = (getpid() & HD_MASK_LENGTH);
 
-    if (debug) printf("shmipc: opening dir %s\n", dir);
-
     // allocate struct, we'll link if all checks pass
     queue_t* queue = malloc(sizeof(queue_t));
     if (queue == NULL) return chronicle_perr("m fail");
     bzero(queue, sizeof(queue_t));
-    queue->roll_epoch = -1;
+
+    // wire up default 'text' parsers for data segments
+    queue->parser = &chronicle_decoder_default_parse;
+    queue->append_sizeof = &chronicle_encoder_default_sizeof;
+    queue->append_write = &chronicle_encoder_default_write;
 
     // unsafe to use ref here in case caller doesn't keep in scope, so dup
     queue->dirname = strdup(dir);
     queue->blocksize = 1024*1024; // must be a power of two (single 1 bit)
+    queue->roll_epoch = -1;
+
+    // Good to use
+    queue->next = queue_head;
+    queue_head = queue;
+
+    return queue;
+}
+
+int chronicle_open(queue_t* queue) {
+
+    if (debug) printf("shmipc: opening dir %s\n", queue->dirname);
 
     // Is this a directory
     struct stat statbuf;
-    if (stat(queue->dirname, &statbuf) != 0) return chronicle_perr("dir stat fail");
-    if (!S_ISDIR(statbuf.st_mode)) return chronicle_perr("dir is not a directory");
+    if (stat(queue->dirname, &statbuf) != 0) return chronicle_err("dir stat fail");
+    if (!S_ISDIR(statbuf.st_mode)) return chronicle_err("dir is not a directory");
 
     // probe V4 - Can we map the directory-listing.cq4t file
     asprintf(&queue->dirlist_name, "%s/directory-listing.cq4t", queue->dirname);
@@ -324,7 +338,7 @@ queue_t* chronicle_init(char* dir) {
         // yet, so this needs to use the directory listing.
 
         if (g->gl_pathc < 1) {
-            return chronicle_perr("V4 and no queue files found so cannot initialise. Set SHMIPC_INIT_CREATE to allow queue creation");
+            return chronicle_err("V4 and no queue files found so cannot initialise. Set SHMIPC_INIT_CREATE to allow queue creation");
         }
 
         int               queuefile_fd;
@@ -335,16 +349,16 @@ queue_t* chronicle_init(char* dir) {
         char* fn = queue->queuefile_glob.gl_pathv[0];
         // find length of queuefile and mmap
         if ((queuefile_fd = open(fn, O_RDONLY)) < 0) {
-            return chronicle_perr("qfi open");
+            return chronicle_err("qfi open");
         }
         if (fstat(queuefile_fd, &queuefile_statbuf) < 0)
-            return chronicle_perr("qfi fstat");
+            return chronicle_err("qfi fstat");
 
         // only need the first block
         queuefile_extent = queuefile_statbuf.st_size < queue->blocksize ? queuefile_statbuf.st_size : queue->blocksize;
 
         if ((queuefile_buf = mmap(0, queuefile_extent, PROT_READ, MAP_SHARED, queuefile_fd, 0)) == MAP_FAILED)
-            return chronicle_perr("qfi mmap fail");
+            return chronicle_err("qfi mmap fail");
 
         // we don't need a data-parser at this stage as only need values from the header
         if (debug) printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
@@ -356,10 +370,10 @@ queue_t* chronicle_init(char* dir) {
     }
 
     // check we loaded roll settings from queuefile or metadata
-    if (queue->version == 0) return chronicle_perr("qfi version detect fail");
-    if (queue->roll_length == 0) return chronicle_perr("qfi roll_length fail");
-    if (queue->roll_format == 0) return chronicle_perr("qfi roll_format fail");
-    if (queue->roll_epoch == -1) return chronicle_perr("qfi roll_epoch fail");
+    if (queue->version == 0) return chronicle_err("qfi version detect fail");
+    if (queue->roll_length == 0) return chronicle_err("qfi roll_length fail");
+    if (queue->roll_format == 0) return chronicle_err("qfi roll_format fail");
+    if (queue->roll_epoch == -1) return chronicle_err("qfi roll_epoch fail");
 
     // defer this until queuefile access
     //if (queue->index_count == 0) return chronicle_err("qfi index_count fail");
@@ -375,25 +389,16 @@ queue_t* chronicle_init(char* dir) {
         queue->cycle_shift = 32;
         queue->seqnum_mask = 0x00000000FFFFFFFF;
     } else {
-        return chronicle_perr("unsupported roll_format");
+        return chronicle_err("unsupported roll_format");
     }
     // TODO: Logic from RollCycles.java ensures rollover occurs before we run out of index2index pages?
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
-
-    // wire up default 'text' parsers for data segments
-    queue->parser = &chronicle_decoder_default_parse;
-    queue->append_sizeof = &chronicle_encoder_default_sizeof;
-    queue->append_write = &chronicle_encoder_default_write;
-
-    // Good to use
-    queue->next = queue_head;
-    queue_head = queue;
 
     // avoids a tailer registration before we have a minimum cycle
     chronicle_peek_queue(queue);
     if (debug) printf("shmipc: init complete\n");
 
-    return queue;
+    return 0;
 
     // wip: kernel style unwinder
 //unwind_1:
@@ -404,16 +409,15 @@ queue_t* chronicle_init(char* dir) {
     // unlink LL if entered
     munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
 //unwind_2:
-    free(queue);
-    return NULL;
+    return -1;
 }
 
-void chronicle_decoder(queue_t *queue, cparse_f parser) {
+void chronicle_set_decoder(queue_t *queue, cparse_f parser) {
     if (debug & !parser) printf("chronicle: setting NULL parser");
     queue->parser = parser;
 }
 
-void chronicle_encoder(queue_t *queue, csizeof_f append_sizeof, cappend_f append_write) {
+void chronicle_set_encoder(queue_t *queue, csizeof_f append_sizeof, cappend_f append_write) {
     if (debug & !append_sizeof) printf("chronicle: setting NULL append_sizeof");
     if (debug & !append_write) printf("chronicle: setting NULL append_write");
     queue->append_sizeof = append_sizeof;
@@ -1145,7 +1149,7 @@ void chronicle_tailer_close(tailer_t* tailer) {
     free(tailer);
 }
 
-int chronicle_close(queue_t* queue_delete) {
+int chronicle_cleanup(queue_t* queue_delete) {
     if (queue_delete == NULL) return chronicle_err("queue is NULL");
 
     // check if queue already open
