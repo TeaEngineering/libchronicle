@@ -47,14 +47,14 @@
 typedef void* COBJ;
 typedef void* DISPATCH_CTX;
 //
-// parsedata_f takes void* and returns custom object. Deserialise, memcpy
-//              or return same ptr to dispatch ref valid for callback.
-// sizeof_f    tells library how many bytes required to serialise user object
-// write_f     takes custom object and writes bytes to void*
-// dispatch_f  takes custom object and index, delivers to application with user data
+// cparse_f     takes void* and returns custom object. Deserialise, memcpy
+//               or return same ptr to dispatch ref valid for callback.
+// csizeof_f    tells library how many bytes required to serialise user object
+// cappend_f    takes custom object and writes bytes to void*
+// cdispatch_f  takes custom object and index, delivers to application with user data
 typedef COBJ   (*cparse_f)    (unsigned char*,int);
 typedef size_t (*csizeof_f)   (COBJ);
-typedef size_t (*cappend_f)   (unsigned char*,size_t,COBJ);
+typedef void   (*cappend_f)   (unsigned char*,COBJ,size_t);
 typedef int    (*cdispatch_f) (DISPATCH_CTX,uint64_t,COBJ);
 
 // forward definition of queue
@@ -79,8 +79,15 @@ typedef struct {
     uint64_t index;
 } collected_t;
 
-queue_t*    chronicle_init(char* dir, cparse_f parser, csizeof_f append_sizeof, cappend_f append_write);
-int         chronicle_close(queue_t* queue_delete);
+queue_t*    chronicle_init(char* dir);
+void        chronicle_encoder(queue_t* queue, csizeof_f append_sizeof, cappend_f append_write);
+void        chronicle_decoder(queue_t* queue, cparse_f parser);
+
+COBJ        chronicle_decoder_default_parse(unsigned char*, int);
+size_t      chronicle_encoder_default_sizeof(COBJ);
+void        chronicle_encoder_default_write(unsigned char*,COBJ,size_t);
+
+int         chronicle_close(queue_t* queue);
 const char* chronicle_strerror();
 
 tailer_t*   chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, DISPATCH_CTX dispatch_ctx, uint64_t index);

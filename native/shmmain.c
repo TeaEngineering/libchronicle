@@ -80,8 +80,9 @@ int main(const int argc, char **argv) {
     }
 
     char* dir = argv[optind];
-    queue_t* queue = chronicle_init(dir, &wire_parse_textonly, &wirepad_sizeof, &wirepad_write);
-
+    queue_t* queue = chronicle_init(dir);
+    chronicle_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    chronicle_decoder(queue, &wire_parse_textonly);
     wirepad_t* pad = wirepad_init(1024);
 
     chronicle_tailer(queue, &print_msg, NULL, index);
