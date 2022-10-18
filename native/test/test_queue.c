@@ -19,7 +19,8 @@ int print_msg(void* ctx, uint64_t index, COBJ y) {
 
 static void queue_not_exist(void **state) {
     queue_t* queue = chronicle_init("q2");
-    assert_null(queue);
+    assert_non_null(queue);
+    assert_int_not_equal(chronicle_open(queue), 0);
     assert_string_equal(chronicle_strerror(), "dir stat fail");
 }
 
@@ -28,10 +29,11 @@ static void queue_is_file(void **state) {
     asprintf(&temp_dir, "%s/chronicle.test.XXXXXX", P_tmpdir);
     mkstemp(temp_dir);
     queue_t* queue = chronicle_init(temp_dir);
-    assert_null(queue);
+    assert_non_null(queue);
+    assert_int_not_equal(chronicle_open(queue), 0);
     assert_string_equal(chronicle_strerror(), "dir is not a directory");
 
-    chronicle_close(queue);
+    chronicle_cleanup(queue);
     delete_test_data(temp_dir);
     free(temp_dir);
 }
@@ -42,10 +44,11 @@ static void queue_empty_dir_no_ver(void **state) {
     asprintf(&temp_dir, "%s/chronicle.test.XXXXXX", P_tmpdir);
     temp_dir = mkdtemp(temp_dir);
     queue_t* queue = chronicle_init(temp_dir);
-    assert_null(queue);
+    assert_non_null(queue);
+    assert_int_not_equal(chronicle_open(queue), 0);
     assert_string_equal(chronicle_strerror(), "qfi version detect fail");
 
-    chronicle_close(queue);
+    chronicle_cleanup(queue);
 
     delete_test_data(temp_dir);
     free(temp_dir);
@@ -63,8 +66,9 @@ static void queue_cqv5_sample_input(void **state) {
     queue_t* queue = chronicle_init(queuedir);
     assert_non_null(queue);
 
-    chronicle_decoder(queue, &wire_parse_textonly);
-    chronicle_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    chronicle_set_decoder(queue, &wire_parse_textonly);
+    chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    assert_int_equal(chronicle_open(queue), 0);
 
     tailer_t* tailer = chronicle_tailer(queue, NULL, NULL, 0);
     assert_non_null(tailer);
@@ -139,7 +143,7 @@ static void queue_cqv5_sample_input(void **state) {
     assert_string_equal("seven", result.msg);
     free(result.msg);
 
-    chronicle_close(queue);
+    chronicle_cleanup(queue);
 
     delete_test_data(test_queuedir);
     free(queuedir);
@@ -160,9 +164,9 @@ static void queue_cqv4_sample_input(void **state) {
     asprintf(&queuedir, "%s/cqv4", test_queuedir);
     queue_t* queue = chronicle_init(queuedir);
     assert_non_null(queue);
-
-    chronicle_decoder(queue, &parse_cqv4_textonly);
-    chronicle_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    chronicle_set_decoder(queue, &parse_cqv4_textonly);
+    chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    assert_int_equal(chronicle_open(queue), 0);
 
     collected_t result;
 
@@ -186,7 +190,7 @@ static void queue_cqv4_sample_input(void **state) {
     assert_string_equal("a much longer item that will need encoding as variable length text", p);
     free(p);
 
-    chronicle_close(queue);
+    chronicle_cleanup(queue);
 
     delete_test_data(test_queuedir);
     free(queuedir);

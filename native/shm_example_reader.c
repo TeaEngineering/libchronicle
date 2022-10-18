@@ -25,13 +25,15 @@ void sigint_handler(int dummy) {
 int main(const int argc, char **argv) {
     signal(SIGINT, sigint_handler);
     queue_t* queue = chronicle_init(argv[1]);
-    chronicle_decoder(queue, &parse_msg);
+    chronicle_set_decoder(queue, &parse_msg);
+    if (chronicle_open(queue) != 0) exit(-1);
     chronicle_tailer(queue, &print_msg, NULL, 0);
+
     while (keepRunning) {
         usleep(500*1000);
         chronicle_peek();
     }
     printf("exiting\n");
-    chronicle_close(queue);
+    chronicle_cleanup(queue);
 }
 
