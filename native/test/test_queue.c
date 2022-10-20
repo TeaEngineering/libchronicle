@@ -17,6 +17,12 @@ int print_msg(void* ctx, uint64_t index, COBJ y) {
     return 0;
 }
 
+static void queue_init_cleanup(void **state) {
+    queue_t* queue = chronicle_init("q2");
+    assert_non_null(queue);
+    chronicle_cleanup(queue);
+}
+
 static void queue_not_exist(void **state) {
     queue_t* queue = chronicle_init("q2");
     assert_non_null(queue);
@@ -197,12 +203,61 @@ static void queue_cqv4_sample_input(void **state) {
     free(test_queuedir);
 }
 
+static void queue_init_rollscheme(void **state) {
+    queue_t* queue = chronicle_init("/tmp");
+    assert_non_null(queue);
+
+    assert_int_equal(chronicle_get_version(queue), 0);
+    chronicle_set_version(queue, 6);
+    assert_int_equal(chronicle_get_version(queue), 0);
+    chronicle_set_version(queue, 4);
+    assert_int_equal(chronicle_get_version(queue), 4);
+    chronicle_set_version(queue, 5);
+    assert_int_equal(chronicle_get_version(queue), 5);
+
+    assert_null(chronicle_get_roll_scheme(queue));
+    chronicle_set_roll_scheme(queue, "MADE_UP_SCHEME");
+    assert_null(chronicle_get_roll_scheme(queue));
+    chronicle_set_roll_scheme(queue, "FAST_HOURLY");
+    assert_string_equal(chronicle_get_roll_scheme(queue), "FAST_HOURLY");
+    assert_string_equal(chronicle_get_roll_format(queue), "yyyyMMdd-HH'F'");
+    char* p;
+    p = chronicle_get_cycle_fn(queue, 0);
+    assert_string_equal(p, "/tmp/19700101-00F.cq4");
+    free(p);
+    p = chronicle_get_cycle_fn(queue, 1);
+    assert_string_equal(p, "/tmp/19700101-01F.cq4");
+    free(p);
+    p = chronicle_get_cycle_fn(queue, 24);
+    assert_string_equal(p, "/tmp/19700102-00F.cq4");
+    free(p);
+
+    chronicle_set_roll_scheme(queue, "FIVE_MINUTELY");
+    p = chronicle_get_cycle_fn(queue, 0);
+    assert_string_equal(p, "/tmp/19700101-0000V.cq4");
+    free(p);
+    p = chronicle_get_cycle_fn(queue, 1);
+    assert_string_equal(p, "/tmp/19700101-0005V.cq4");
+    free(p);
+
+    chronicle_set_roll_scheme(queue, "DAILY");
+    assert_string_equal(chronicle_get_roll_scheme(queue), "DAILY");
+    assert_string_equal(chronicle_get_roll_format(queue), "yyyyMMdd");
+    p = chronicle_get_cycle_fn(queue, 0);
+    assert_string_equal(p, "/tmp/19700101.cq4");
+    free(p);
+
+    chronicle_cleanup(queue);
+}
+
 int main(int argc, char* argv[]) {
     argv0 = argv[0];
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(queue_init_cleanup),
         cmocka_unit_test(queue_not_exist),
         cmocka_unit_test(queue_is_file),
         cmocka_unit_test(queue_empty_dir_no_ver),
+        cmocka_unit_test(queue_init_rollscheme),
         cmocka_unit_test(queue_cqv4_sample_input),
         cmocka_unit_test(queue_cqv5_sample_input),
     };

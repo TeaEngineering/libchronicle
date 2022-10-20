@@ -140,6 +140,7 @@ typedef struct queue {
     char*             dirname;
     uint              blocksize;
     uint8_t           version;
+    uint8_t           create;
 
     // directory-listing.cq4t
     char*             dirlist_name;
@@ -160,6 +161,8 @@ typedef struct queue {
     int               roll_length;
     int               roll_epoch;
     char*             roll_format;
+    char*             roll_name;
+    char*             roll_strftime;
     int               index_count;
     int               index_spacing;
 
@@ -222,32 +225,23 @@ static inline uint32_t lock_xadd(unsigned char* mem, uint32_t val) {
     return (uint32_t)val;
 }
 
-char* get_cycle_fn_yyyymmdd(queue_t* queue, int cycle) {
+char* chronicle_get_cycle_fn(queue_t* queue, int cycle) {
     // TODO: replace with https://ideone.com/7BADb as gmtime_r leaks
-    char* buf;
     // time_t aka long. seconds since midnight 1970
-    time_t rawtime = cycle * 60*60*24;
+    time_t rawtime = cycle * (queue->roll_length / 1000);
     struct tm info;
     gmtime_r(&rawtime, &info);
 
-    // tail of this buffer is overwritten by the strftime below
-    int bufsz = asprintf(&buf, "%s/yyyymmdd.cq4", queue->dirname);
-    strftime(buf+bufsz-12, 13, "%Y%m%d.cq4", &info);
-    return buf;
-}
+    // format datetime component using prebuilt pattern
+    char* strftime_buf = strdup(queue->roll_format);
+    strftime(strftime_buf, strlen(strftime_buf)+1, queue->roll_strftime, &info);
 
-char* get_cycle_fn_yyyymmddF(queue_t* queue, int cycle) {
-    // TODO: replace with https://ideone.com/7BADb as gmtime_r leaks
-    char* buf;
-    // time_t aka long. seconds since midnight 1970
-    time_t rawtime = cycle * 60*60*24;
-    struct tm info;
-    gmtime_r(&rawtime, &info);
-
-    // tail of this buffer is overwritten by the strftime below
-    int bufsz = asprintf(&buf, "%s/yyyymmddF.cq4", queue->dirname);
-    strftime(buf+bufsz-13, 13, "%Y%m%dF.cq4", &info);
-    return buf;
+    // join with dirname and file suffix
+    char* fnbuf;
+    int bufsz = asprintf(&fnbuf, "%s/%s.cq4", queue->dirname, strftime_buf);
+    free(strftime_buf);
+    if (bufsz < 0) return NULL;
+    return fnbuf;
 }
 
 void queue_double_blocksize(queue_t* queue) {
@@ -316,7 +310,6 @@ int chronicle_open(queue_t* queue) {
         queue->version = 4;
     }
 
-
     // Does queue dir contain some .cq4 files?
     // for V5 it is OK to have empty directory
     glob_t *g = &queue->queuefile_glob;
@@ -370,26 +363,23 @@ int chronicle_open(queue_t* queue) {
 
     // check we loaded roll settings from queuefile or metadata
     if (queue->version == 0) return chronicle_err("qfi version detect fail");
-    if (queue->roll_length == 0) return chronicle_err("qfi roll_length fail");
     if (queue->roll_format == 0) return chronicle_err("qfi roll_format fail");
+    if (queue->roll_length == 0) return chronicle_err("qfi roll_length fail");
     if (queue->roll_epoch == -1) return chronicle_err("qfi roll_epoch fail");
 
+    char* roll_format_auto = queue->roll_format;
     // defer this until queuefile access
+    chronicle_set_roll_dateformat(queue, roll_format_auto);
+    free(roll_format_auto);
+
     //if (queue->index_count == 0) return chronicle_err("qfi index_count fail");
     //if (queue->index_spacing == 0) return chronicle_err("qfi index_spacing fail");
+    if (queue->roll_name == NULL) return chronicle_err("qfi roll scheme unknown");
 
-    // TODO check yyyymmdd
-    if (strcmp(queue->roll_format, "yyyyMMdd") == 0) {
-        queue->cycle2file_fn = &get_cycle_fn_yyyymmdd;
-        queue->cycle_shift = 32;
-        queue->seqnum_mask = 0x00000000FFFFFFFF;
-    } else if (strcmp(queue->roll_format, "yyyyMMdd'F'") == 0) {
-        queue->cycle2file_fn = &get_cycle_fn_yyyymmddF;
-        queue->cycle_shift = 32;
-        queue->seqnum_mask = 0x00000000FFFFFFFF;
-    } else {
-        return chronicle_err("unsupported roll_format");
-    }
+    queue->cycle2file_fn = &chronicle_get_cycle_fn;
+    queue->cycle_shift = 32;
+    queue->seqnum_mask = 0x00000000FFFFFFFF;
+
     // TODO: Logic from RollCycles.java ensures rollover occurs before we run out of index2index pages?
     //  cycleShift = Math.max(32, Maths.intLog2(indexCount) * 2 + Maths.intLog2(indexSpacing));
 
@@ -410,6 +400,146 @@ void chronicle_set_encoder(queue_t *queue, csizeof_f append_sizeof, cappend_f ap
     if (debug & !append_write) printf("chronicle: setting NULL append_write");
     queue->append_sizeof = append_sizeof;
     queue->append_write = append_write;
+}
+
+struct ROLL_SCHEME chronicle_roll_schemes[] = {
+    // in use by cq5
+    {"FIVE_MINUTELY",        "yyyyMMdd-HHmm'V'",        5*60,  2<<10,   256},
+    {"TEN_MINUTELY",         "yyyyMMdd-HHmm'X'",       10*60,  2<<10,   256},
+    {"TWENTY_MINUTELY",      "yyyyMMdd-HHmm'XX'",      20*60,  2<<10,   256},
+    {"HALF_HOURLY",          "yyyyMMdd-HHmm'H'",       30*60,  2<<10,   256},
+    {"FAST_HOURLY",          "yyyyMMdd-HH'F'",         60*60,  4<<10,   256},
+    {"TWO_HOURLY",           "yyyyMMdd-HH'II'",      2*60*60,  4<<10,   256},
+    {"FOUR_HOURLY",          "yyyyMMdd-HH'IV'",      4*60*60,  4<<10,   256},
+    {"SIX_HOURLY",           "yyyyMMdd-HH'VI'",      6*60*60,  4<<10,   256},
+    {"FAST_DAILY",           "yyyyMMdd'F'",         24*60*60,  4<<10,   256},
+    // used historically by cq4
+    {"MINUTELY",             "yyyyMMdd-HHmm",             60,  2<<10,    16},
+    {"HOURLY",               "yyyyMMdd-HH",            60*60,  4<<10,    16},
+    {"DAILY",                "yyyyMMdd",            24*60*60,  8<<10,    64},
+    // minimal rolls with resulting large queue files
+    {"LARGE_HOURLY",         "yyyyMMdd-HH'L'",         60*60,  8<<10,    64},
+    {"LARGE_DAILY",          "yyyyMMdd'L'",         24*60*60, 32<<10,   128},
+    {"XLARGE_DAILY",         "yyyyMMdd'X'",         24*60*60, 32<<10,   256},
+    {"HUGE_DAILY",           "yyyyMMdd'H'",         24*60*60, 32<<10,  1024},
+    // for tests and benchmarking with nearly no indexing
+    {"SMALL_DAILY",          "yyyyMMdd'S'",         24*60*60,  8<<10,     8},
+    {"LARGE_HOURLY_SPARSE",  "yyyyMMdd-HH'LS'",        60*60,  4<<10,  1024},
+    {"LARGE_HOURLY_XSPARSE", "yyyyMMdd-HH'LX'",        60*60,  2<<10, 1<<20},
+    {"HUGE_DAILY_XSPARSE",   "yyyyMMdd'HX'",        24*60*60, 16<<10, 1<<20},
+    // for tests to create smaller queue files
+    {"TEST_SECONDLY",        "yyyyMMdd-HHmmss'T'",         1, 32<<10,     4},
+    {"TEST4_SECONDLY",       "yyyyMMdd-HHmmss'T4'",        1,     32,     4},
+    {"TEST_HOURLY",          "yyyyMMdd-HH'T'",         60*60,     16,     4},
+    {"TEST_DAILY",           "yyyyMMdd'T1'",        24*60*60,      8,     1},
+    {"TEST2_DAILY",          "yyyyMMdd'T2'",        24*60*60,     16,     2},
+    {"TEST4_DAILY",          "yyyyMMdd'T4'",        24*60*60,     32,     4},
+    {"TEST8_DAILY",          "yyyyMMdd'T8'",        24*60*60,    128,     8},
+};
+
+void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
+    if (debug) printf("chronicle: chronicle_set_roll_scheme applying %s", x.name);
+
+    queue->roll_name   = x.name;
+    queue->roll_format = x.formatstr;
+    queue->roll_length = x.roll_length_secs * 1000;
+
+    // remove appostrophe from java's format string and build
+    // the equivelent strftime string together
+    char* p = strdup(queue->roll_format);
+    int px = 0;
+    char* f = queue->roll_format;
+    int fi = 0;
+    int inquote = 0;
+    while (fi < strlen(queue->roll_format)) {
+        if (debug) {
+            printf(" rs parser fi=%d px=%d inquote=%d buffer='%s'\n", fi, px, inquote, p);
+        }
+        if (inquote == 1 && f[fi] != '\'') {
+            // copy quoted literal
+            p[px++] = f[fi++];
+        } else if (f[fi] == '-') {
+            // copy literal dash
+            p[px++] = f[fi++];
+        } else if (f[fi] == '\'') {
+            // ignore quotes, toggle flag
+            inquote = (inquote + 1) % 2;
+            fi++;
+        } else if (strncmp(&f[fi], "yyyy", 4) == 0) {
+            p[px++] = '%';
+            p[px++] = 'Y';
+            fi += 4;
+        } else if (strncmp(&f[fi], "MM", 2) == 0) {
+            p[px++] = '%';
+            p[px++] = 'm';
+            fi += 2;
+        } else if (strncmp(&f[fi], "dd", 2) == 0) {
+            p[px++] = '%';
+            p[px++] = 'd';
+            fi += 2;
+        } else if (strncmp(&f[fi], "HH", 2) == 0) {
+            p[px++] = '%';
+            p[px++] = 'H';
+            fi += 2;
+        } else if (strncmp(&f[fi], "mm", 2) == 0) {
+            p[px++] = '%';
+            p[px++] = 'M';
+            fi += 2;
+        } else {
+            printf("chronicle: parser conversion of %s exploded at fi=%d px=%d inquote=%d buffer='%s'\n", queue->roll_format, fi, px, inquote, p);
+            return;
+        }
+    }
+    p[px++] = 0;
+    queue->roll_strftime = p;
+}
+
+int chronicle_set_roll_scheme(queue_t* queue, char* scheme) {
+    queue->roll_name   = NULL;
+    queue->roll_format = NULL;
+    for (int i = 0; i < sizeof(chronicle_roll_schemes)/sizeof(chronicle_roll_schemes[0]); i++) {
+        struct ROLL_SCHEME x = chronicle_roll_schemes[i];
+        if (strcmp(scheme, x.name) == 0) {
+            chronicle_apply_roll_scheme(queue, x);
+        }
+    }
+    return 0;
+}
+
+char* chronicle_get_roll_scheme(queue_t* queue) {
+    return queue->roll_name;
+}
+
+char* chronicle_get_roll_format(queue_t* queue) {
+    return queue->roll_format;
+}
+
+int chronicle_set_roll_dateformat(queue_t* queue, char* dateformat) {
+    queue->roll_name   = NULL;
+    queue->roll_format = NULL;
+    for (int i = 0; i < sizeof(chronicle_roll_schemes)/sizeof(chronicle_roll_schemes[0]); i++) {
+        struct ROLL_SCHEME x = chronicle_roll_schemes[i];
+        if (strcmp(dateformat, x.formatstr) == 0) {
+            chronicle_apply_roll_scheme(queue, x);
+        }
+    }
+    return 0;
+}
+
+void chronicle_set_create(queue_t* queue, int create) {
+    queue->create = create;
+}
+
+void chronicle_set_version(queue_t* queue, int version) {
+    if (version == 4) {
+        queue->version = 4;
+    } else if (version == 5) {
+        queue->version = 5;
+    }
+}
+
+int chronicle_get_version(queue_t* queue) {
+    return queue->version;
 }
 
 // return codes
@@ -819,6 +949,8 @@ void chronicle_debug() {
         printf("    roll_epoch       %d\n",   current->roll_epoch);
         printf("    roll_length (ms) %d\n",   current->roll_length);
         printf("    roll_format      %s\n",   current->roll_format);
+        printf("    roll_name        %s\n",   current->roll_name);
+        printf("    roll_strftime    %s\n",   current->roll_strftime);
         printf("    index_count      %d\n",   current->index_count);
         printf("    index_spacing    %d\n",   current->index_spacing);
 
@@ -928,7 +1060,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
         r = chronicle_peek_tailer(queue, appender);
         if (debug) printf("shmipc: writeloop appender in state %d\n", r);
 
-        if (r == 2) {
+        if (r == TS_AWAITING_QUEUEFILE) {
             // our cycle is pointing to a queuefile that does not exist
             // as we are writer, create it with temporary filename, atomically
             // move it to the desired name, then bump the global highest_cycle
@@ -1167,7 +1299,7 @@ int chronicle_cleanup(queue_t* queue_delete) {
             free(queue->dirlist_name);
             free(queue->dirname);
             free(queue->queuefile_pattern);
-            free(queue->roll_format);
+            // roll_format points to global static struct
             globfree(&queue->queuefile_glob);
             free(queue);
 
