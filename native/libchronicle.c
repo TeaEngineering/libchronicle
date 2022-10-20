@@ -308,7 +308,6 @@ int chronicle_open(queue_t* queue) {
         x = directory_listing_reopen(queue, O_RDONLY, PROT_READ);
         if (x != 0) {
             if (debug) printf("shmipc: v5 dir listing: %d %s\n", x, cerr_msg);
-            free(queue->dirlist_name);
         } else {
             queue->version = 5;
         }
@@ -396,20 +395,9 @@ int chronicle_open(queue_t* queue) {
 
     // avoids a tailer registration before we have a minimum cycle
     chronicle_peek_queue(queue);
-    if (debug) printf("shmipc: init complete\n");
+    if (debug) printf("shmipc: chronicle_open() OK\n");
 
     return 0;
-
-    // wip: kernel style unwinder
-//unwind_1:
-    free(queue->dirlist_name);
-    free(queue->queuefile_pattern);
-    close(queue->dirlist_fd);
-    globfree(&queue->queuefile_glob);
-    // unlink LL if entered
-    munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
-//unwind_2:
-    return -1;
 }
 
 void chronicle_set_decoder(queue_t *queue, cparse_f parser) {
@@ -1173,7 +1161,9 @@ int chronicle_cleanup(queue_t* queue_delete) {
 
             // kill queue
             munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
-            close(queue->dirlist_fd);
+            if (queue->dirlist_fd > 0) {
+                close(queue->dirlist_fd);
+            }
             free(queue->dirlist_name);
             free(queue->dirname);
             free(queue->queuefile_pattern);
