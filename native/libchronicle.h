@@ -90,7 +90,8 @@ typedef struct {
 
 queue_t*    chronicle_init(char* dir);
 void        chronicle_set_version(queue_t* queue, int version);
-void        chronicle_set_roll_scheme(queue_t* queue, char* scheme);
+int         chronicle_set_roll_scheme(queue_t* queue, char* scheme);
+int         chronicle_set_roll_dateformat(queue_t* queue, char* scheme);
 void        chronicle_set_encoder(queue_t* queue, csizeof_f append_sizeof, cappend_f append_write);
 void        chronicle_set_decoder(queue_t* queue, cparse_f parser);
 void        chronicle_set_create(queue_t* queue, int create);
@@ -100,6 +101,12 @@ int         chronicle_cleanup(queue_t* queue);
 COBJ        chronicle_decoder_default_parse(unsigned char*, int);
 size_t      chronicle_encoder_default_sizeof(COBJ);
 void        chronicle_encoder_default_write(unsigned char*,COBJ,size_t);
+
+int         chronicle_get_version(queue_t* queue);
+char*       chronicle_get_roll_scheme(queue_t* queue);
+char*       chronicle_get_roll_format(queue_t* queue);
+char*       chronicle_get_cycle_fn(queue_t* queue, int cycle);
+
 
 const char* chronicle_strerror();
 
@@ -119,5 +126,15 @@ uint64_t    chronicle_append(queue_t *queue, COBJ msg);
 uint64_t    chronicle_append_ts(queue_t *queue, COBJ msg, long ms);
 
 COBJ        chronicle_collect(tailer_t *tailer, collected_t *collect);
+
+struct ROLL_SCHEME {
+    char*    name;
+    char*    formatstr;
+    uint32_t roll_length_secs;
+    uint32_t entries;
+    uint32_t index;
+};
+
+extern struct ROLL_SCHEME chronicle_roll_schemes[];
 
 #endif
