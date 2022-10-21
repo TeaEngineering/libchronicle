@@ -164,17 +164,17 @@ static void test_wirepad_metadata(void **state) {
 
     wirepad_qc_start(pad, 0);
     wirepad_event_name(pad, "chronicle.write.lock");
-    wirepad_uint64_aligned(pad, 9223372036854775808UL);
+    wirepad_uint64_aligned(pad, 0x8000000000000000);
     wirepad_qc_finish(pad);
 
     wirepad_qc_start(pad, 0);
     wirepad_event_name(pad, "chronicle.lastIndexReplicated");
-    wirepad_uint64_aligned(pad, 18446744073709551615UL);
+    wirepad_uint64_aligned(pad, -1);
     wirepad_qc_finish(pad);
 
     wirepad_qc_start(pad, 0);
     wirepad_event_name(pad, "chronicle.lastAcknowledgedIndexReplicated");
-    wirepad_uint64_aligned(pad, 18446744073709551615UL);
+    wirepad_uint64_aligned(pad, -1);
     wirepad_qc_finish(pad);
 
     assert_memory_equal(buf, wirepad_base(pad), wirepad_sizeof(pad));

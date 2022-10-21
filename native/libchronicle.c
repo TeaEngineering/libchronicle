@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <time.h>
 #include <libchronicle.h>
 
@@ -206,6 +207,9 @@ void parse_queuefile_meta(unsigned char*, int, queue_t*);
 void parse_queuefile_data(unsigned char*, int, queue_t*, tailer_t*, uint64_t);
 int queuefile_init(char*, queue_t*);
 int directory_listing_reopen(queue_t*, int, int);
+int directory_listing_init(queue_t*, uint64_t cycle);
+long chronicle_clock_ms(queue_t*);
+uint64_t chronicle_cycle_from_ms(queue_t*, long);
 
 // compare and swap, 32 bits, addressed by a 64bit pointer
 static inline uint32_t lock_cmpxchgl(unsigned char *mem, uint32_t newval, uint32_t oldval) {
@@ -281,6 +285,27 @@ queue_t* chronicle_init(char* dir) {
     return queue;
 }
 
+int chronicle_readable(char* dirname, char* suffix) {
+    char* dirlist_name;
+    int dirlist_fd;
+
+    // probe v4 directory-listing.cq4t
+    asprintf(&dirlist_name, "%s/%s", dirname, suffix);
+    if ((dirlist_fd = open(dirlist_name, O_RDONLY)) > 0) {
+        close(dirlist_fd);
+        free(dirlist_name);
+        return 1;
+    }
+    free(dirlist_name);
+    return 0;
+}
+
+int chronicle_version_detect(queue_t* queue) {
+    if (chronicle_readable(queue->dirname, "directory-listing.cq4t")) return 4;
+    if (chronicle_readable(queue->dirname, "metadata.cq4t")) return 5;
+    return 0;
+}
+
 int chronicle_open(queue_t* queue) {
 
     if (debug) printf("shmipc: opening dir %s\n", queue->dirname);
@@ -290,25 +315,9 @@ int chronicle_open(queue_t* queue) {
     if (stat(queue->dirname, &statbuf) != 0) return chronicle_err("dir stat fail");
     if (!S_ISDIR(statbuf.st_mode)) return chronicle_err("dir is not a directory");
 
-    // probe V4 - Can we map the directory-listing.cq4t file
-    asprintf(&queue->dirlist_name, "%s/directory-listing.cq4t", queue->dirname);
-    int x = directory_listing_reopen(queue, O_RDONLY, PROT_READ);
-    if (x != 0) {
-        if (debug) printf("shmipc: v4 dir listing: %d %s\n", x, cerr_msg);
-        free(queue->dirlist_name);
-
-        // probe V5 - metadata.cq4t
-        asprintf(&queue->dirlist_name, "%s/metadata.cq4t", queue->dirname);
-        x = directory_listing_reopen(queue, O_RDONLY, PROT_READ);
-        if (x != 0) {
-            if (debug) printf("shmipc: v5 dir listing: %d %s\n", x, cerr_msg);
-        } else {
-            queue->version = 5;
-        }
-
-    } else {
-        queue->version = 4;
-    }
+    // autodetect version
+    int auto_version = chronicle_version_detect(queue);
+    printf("chronicle: detected version v%d\n", auto_version);
 
     // Does queue dir contain some .cq4 files?
     // for V5 it is OK to have empty directory
@@ -324,13 +333,37 @@ int chronicle_open(queue_t* queue) {
         }
     }
 
+    if (auto_version == 0) {
+        if (queue->create == 0) return chronicle_err("queue should exist (no permission to create), but version detect failed");
+        if (queue->version == 0) return chronicle_err("queue create requires chronicle_set_version()");
+        if (g->gl_pathc != 0) return chronicle_err("queue create requires empty destination directory");
+        if (queue->roll_name == NULL) return chronicle_err("queue create requires chronicle_set_roll_scheme()");
+
+    } else if (queue->version != 0 && queue->version != auto_version) {
+        return chronicle_err("queue version detected does not match expected set via. chronicle_set_version()");
+    } else {
+        queue->version = auto_version;
+    }
+
+    // populate dirlist
+    asprintf(&queue->dirlist_name, queue->version == 4 ? "%s/directory-listing.cq4t" : "%s/metadata.cq4t", queue->dirname);
+    if (queue->create && auto_version == 0) {
+        uint64_t cycle = chronicle_cycle_from_ms(queue, chronicle_clock_ms(queue));
+        int rc = directory_listing_init(queue, cycle);
+        if(rc != 0) return rc;
+    }
+
+    // parse the directory listing and sanity-check all required fields exist
+    int rc = directory_listing_reopen(queue, O_RDONLY, PROT_READ);
+    if(rc != 0) return rc;
+
     if (queue->version == 4) {
         // For v4, we need to read a 'queue' header from any one of the datafiles to get the
         // rollover configuration. We don't know how to generate a filename from a cycle code
         // yet, so this needs to use the directory listing.
 
         if (g->gl_pathc < 1) {
-            return chronicle_err("V4 and no queue files found so cannot initialise. Set SHMIPC_INIT_CREATE to allow queue creation");
+            return chronicle_err("V4 and no queue files found so cannot initialise. Call chronicle_set_create(queue, 1) to allow queue creation");
         }
 
         int               queuefile_fd;
@@ -438,7 +471,7 @@ struct ROLL_SCHEME chronicle_roll_schemes[] = {
 };
 
 void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
-    if (debug) printf("chronicle: chronicle_set_roll_scheme applying %s", x.name);
+    if (debug) printf("chronicle: chronicle_set_roll_scheme applying %s\n", x.name);
 
     queue->roll_name   = x.name;
     queue->roll_format = x.formatstr;
@@ -491,6 +524,9 @@ void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
         }
     }
     p[px++] = 0;
+    if (debug) {
+        printf(" rs parser result='%s'\n", p);
+    }
     queue->roll_strftime = p;
 }
 
@@ -540,6 +576,18 @@ void chronicle_set_version(queue_t* queue, int version) {
 
 int chronicle_get_version(queue_t* queue) {
     return queue->version;
+}
+
+long chronicle_clock_ms(queue_t* queue) {
+    // switch to custom clock etc.
+    // default case
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 ;
+}
+
+uint64_t chronicle_cycle_from_ms(queue_t* queue, long ms) {
+    return (ms - queue->roll_epoch) / queue->roll_length;
 }
 
 // return codes
@@ -935,8 +983,10 @@ void chronicle_debug() {
     queue_t *current = queue_head;
     while (current != NULL) {
         printf(" directory           %s\n",   current->dirname);
+        printf("  handle             %p\n",   current);
         printf("  blocksize          %x\n",   current->blocksize);
         printf("  version            %d\n",   current->version);
+        printf("  create             %d\n",   current->create);
         printf("  dirlist_name       %s\n",   current->dirlist_name);
         printf("  dirlist_fd         %d\n",   current->dirlist_fd);
         printf("  dirlist_sz         %" PRIu64 "\n", (uint64_t)current->dirlist_statbuf.st_size);
@@ -989,7 +1039,8 @@ void chronicle_debug_tailer(queue_t* queue, tailer_t* tailer) {
 }
 
 uint64_t chronicle_append(queue_t *queue, COBJ msg) {
-    return chronicle_append_ts(queue,msg,0);
+    long ms = chronicle_clock_ms(queue);
+    return chronicle_append_ts(queue, msg, ms);
 }
 
 uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
@@ -1142,7 +1193,7 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
 
             // if given a clock, test if we should write EOF and advance cycle
             if (ms > 0) {
-                uint64_t cyc = (ms - queue->roll_epoch) / queue->roll_length;
+                uint64_t cyc = chronicle_cycle_from_ms(queue, ms);
                 if (cyc > appender->qf_index >> queue->cycle_shift) {
                     printf("shmipc: appender setting cycle from timestamp: current %" PRIu64 " proposed %" PRIu64 "\n", appender->qf_index >> queue->cycle_shift, cyc);
                     appender->qf_index = cyc << queue->cycle_shift;
@@ -1341,10 +1392,87 @@ int queuefile_init(char* fn, queue_t* queue) {
     return 0;
 }
 
-int directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
+int directory_listing_init(queue_t* queue, uint64_t cycle) {
+    int fd;
+    int mode = 0777;
 
+    if ((fd = open(queue->dirlist_name, O_RDWR | O_CREAT | O_TRUNC, mode)) < 0) {
+        printf("can't create %s for writing", queue->dirlist_name);
+        return chronicle_err("shmipc: directory_listing_init open failed");
+    }
+
+    wirepad_t* pad = wirepad_init(1024);
+
+    // deliberately not updating queue->roll_epoch here so that we verify
+    // we can read them back from the directory_listing file
+    int roll_epoch = (queue->roll_epoch == -1) ? 0 : queue->roll_epoch;
+    int modcount = 1;
+
+    // single metadata message
+    wirepad_qc_start(pad, 1);
+    wirepad_event_name(pad, "header");
+    wirepad_type_prefix(pad, "STStore");
+    wirepad_nest_enter(pad); //header
+      wirepad_field_type_enum(pad, "wireType", "WireType", "BINARY_LIGHT");
+      // field metadata, type prefix SCQMeta, nesting begin
+      wirepad_field(pad, "metadata");
+      wirepad_type_prefix(pad, "SCQMeta");
+      wirepad_nest_enter(pad);
+        wirepad_field(pad, "roll");
+        wirepad_type_prefix(pad, "SCQSRoll");
+        wirepad_nest_enter(pad);
+          wirepad_field_varint(pad, "length", queue->roll_length);
+          wirepad_field_text(pad, "format", queue->roll_format);
+          wirepad_field_varint(pad, "epoch", roll_epoch);
+        wirepad_nest_exit(pad);
+        wirepad_field_varint(pad, "deltaCheckpointInterval", 64);
+        wirepad_field_varint(pad, "sourceId", 0);
+      wirepad_nest_exit(pad);
+      wirepad_pad_to_x8(pad); // feels wrong - should be automatic?
+      wirepad_nest_exit(pad);
+    wirepad_qc_finish(pad);
+
+    // 6 data messages
+    wirepad_qc_start(pad, 0);
+    wirepad_event_name(pad, "listing.highestCycle");
+    wirepad_uint64_aligned(pad, cycle); // this cannot be varint as memory mapped! explicit size
+    wirepad_qc_finish(pad);
+
+    wirepad_qc_start(pad, 0);
+    wirepad_event_name(pad, "listing.lowestCycle");
+    wirepad_uint64_aligned(pad, cycle);
+    wirepad_qc_finish(pad);
+
+    wirepad_qc_start(pad, 0);
+    wirepad_event_name(pad, "listing.modCount");
+    wirepad_uint64_aligned(pad, modcount);
+    wirepad_qc_finish(pad);
+
+    wirepad_qc_start(pad, 0);
+    wirepad_event_name(pad, "chronicle.write.lock");
+    wirepad_uint64_aligned(pad, 0x8000000000000000);
+    wirepad_qc_finish(pad);
+
+    wirepad_qc_start(pad, 0);
+    wirepad_event_name(pad, "chronicle.lastIndexReplicated");
+    wirepad_uint64_aligned(pad, -1);
+    wirepad_qc_finish(pad);
+
+    wirepad_qc_start(pad, 0);
+    wirepad_event_name(pad, "chronicle.lastAcknowledgedIndexReplicated");
+    wirepad_uint64_aligned(pad, -1);
+    wirepad_qc_finish(pad);
+
+    write(fd, wirepad_base(pad), wirepad_sizeof(pad));
+    close(fd);
+
+    wirepad_free(pad);
+    return 0;
+}
+
+int directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
     if ((queue->dirlist_fd = open(queue->dirlist_name, open_flags)) < 0) {
-        return chronicle_err("dirlist open fail");
+        return chronicle_err("directory_listing_reopen open failed");
     }
 
     // find size of dirlist and mmap

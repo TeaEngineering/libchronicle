@@ -52,7 +52,8 @@ static void queue_empty_dir_no_ver(void **state) {
     queue_t* queue = chronicle_init(temp_dir);
     assert_non_null(queue);
     assert_int_not_equal(chronicle_open(queue), 0);
-    assert_string_equal(chronicle_strerror(), "qfi version detect fail");
+    assert_string_equal(chronicle_strerror(), "queue should exist (no permission to create), but version detect failed");
+    assert_int_equal(chronicle_get_version(queue), 0);
 
     chronicle_cleanup(queue);
 
@@ -75,6 +76,8 @@ static void queue_cqv5_sample_input(void **state) {
     chronicle_set_decoder(queue, &wire_parse_textonly);
     chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
     assert_int_equal(chronicle_open(queue), 0);
+    assert_int_equal(chronicle_get_version(queue), 5);
+    assert_string_equal(chronicle_get_roll_scheme(queue), "FAST_DAILY");
 
     tailer_t* tailer = chronicle_tailer(queue, NULL, NULL, 0);
     assert_non_null(tailer);
@@ -104,7 +107,7 @@ static void queue_cqv5_sample_input(void **state) {
 
     wirepad_t* pad = wirepad_init(1024);
     wirepad_text(pad, "four five");
-    idx = chronicle_append(queue, pad);
+    idx = chronicle_append_ts(queue, pad, 1637267400000L);
     assert_int_equal(idx, 0x4A0500000004);  // easier to see cycle/index split in hex
 
     // write with timestamp that will match recording of 20211118F
@@ -173,6 +176,8 @@ static void queue_cqv4_sample_input(void **state) {
     chronicle_set_decoder(queue, &parse_cqv4_textonly);
     chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
     assert_int_equal(chronicle_open(queue), 0);
+    assert_int_equal(chronicle_get_version(queue), 4);
+    assert_string_equal(chronicle_get_roll_scheme(queue), "DAILY");
 
     collected_t result;
 
@@ -250,6 +255,55 @@ static void queue_init_rollscheme(void **state) {
     chronicle_cleanup(queue);
 }
 
+static void queue_cqv5_new_queue(void **state) {
+
+    // create queue in an empty directory
+    char* temp_dir;
+    asprintf(&temp_dir, "%s/chronicle.test.XXXXXX", P_tmpdir);
+    temp_dir = mkdtemp(temp_dir);
+    queue_t* queue = chronicle_init(temp_dir);
+    assert_non_null(queue);
+    chronicle_set_version(queue, 5);
+    chronicle_set_roll_scheme(queue, "DAILY");
+    chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    chronicle_set_create(queue, 1);
+    assert_int_equal(chronicle_open(queue), 0);
+    assert_int_equal(chronicle_get_version(queue), 5);
+    assert_string_equal(chronicle_get_roll_scheme(queue), "DAILY");
+
+    // append will use local clock - we cannot predict the returned index
+    wirepad_t* pad = wirepad_init(1024);
+    wirepad_text(pad, "four five");
+    uint64_t idx = chronicle_append(queue, pad);
+
+    chronicle_cleanup(queue);
+
+    // re-open queue to check we find our text at the same index
+    queue = chronicle_init(temp_dir);
+    assert_non_null(queue);
+    chronicle_set_decoder(queue, &wire_parse_textonly);
+    assert_int_equal(chronicle_open(queue), 0);
+    assert_int_equal(chronicle_get_version(queue), 5);
+    assert_string_equal(chronicle_get_roll_scheme(queue), "DAILY");
+
+    collected_t result;
+
+    tailer_t* tailer = chronicle_tailer(queue, NULL, NULL, 0);
+
+    char* p = (char*)chronicle_collect(tailer, &result);
+    assert_string_equal("four five", p);
+    assert_true(idx == result.index);
+    assert_int_equal(chronicle_tailer_state(tailer), TS_COLLECTED);
+    free(p);
+
+    // chronicle_collect(tailer, &result);
+    // assert_int_equal(chronicle_tailer_state(tailer), TS_COLLECTED);
+
+    chronicle_cleanup(queue);
+    delete_test_data(temp_dir);
+    free(temp_dir);
+}
+
 int main(int argc, char* argv[]) {
     argv0 = argv[0];
     const struct CMUnitTest tests[] = {
@@ -260,6 +314,7 @@ int main(int argc, char* argv[]) {
         cmocka_unit_test(queue_init_rollscheme),
         cmocka_unit_test(queue_cqv4_sample_input),
         cmocka_unit_test(queue_cqv5_sample_input),
+        cmocka_unit_test(queue_cqv5_new_queue),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
