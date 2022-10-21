@@ -5,50 +5,90 @@
 
 ## Getting started
 
-This example is [`native/shmexample.c`](native/shmexample.c) and can be built by `make` or with:
+Our example is in two parts. The writing side is [`native/shm_example_writer.c`](native/shm_example_writer.c) and can be built by `make`:
 
-    $ gcc -o obj/shmexample shmexample.c libchronicle.c -fPIC -I. -Wall -std=gnu99 -g -O0
-
+    $ git clone git@github.com:TeaEngineering/libchronicle.git
+    $ cd libchronicle/native
+    $ make
+    $ mkdir /tmp/testq
+    $ ./obj/shm_example_writer /tmp/testq
 
 ```C
 #include <libchronicle.h>
 #include <stdarg.h>
 
-// This is a stand-alone tool for replaying a queue
-// queue data is null-terminated strings, embedded nulls will truncate printing
+void append_msg(unsigned char* base, void* msg, size_t sz) {
+    memcpy(base, msg, sz);
+}
+
+size_t sizeof_msg(void* msg) {
+    return strlen(msg);
+}
+
+int main(const int argc, char **argv) {
+    queue_t* queue = chronicle_init(argv[1]);
+    chronicle_set_encoder(queue, &sizeof_msg, &append_msg);
+    chronicle_set_version(queue, 5);
+    chronicle_set_roll_scheme(queue, "FAST_HOURLY");
+    chronicle_set_create(queue, 1);
+    if (chronicle_open(queue) != 0) exit(-1);
+
+    char line[1024];
+    while (1) {
+        char* g = fgets(line, 1024, stdin);
+        if (g == NULL) break;
+        g[strlen(g) - 1] = 0;
+        long int index = chronicle_append(queue, g);
+        printf("[%" PRIu64 "] %s\n", index, (char*)g);
+    }
+    chronicle_cleanup(queue);
+}
+```
+
+Running this code creates a new v5 queue in the directory specified using `FAST_HOURLY` rollover, then writes any text input from stdin as messages.
+
+The reading side is similar, invoked as `$ ./obj/shm_example_reader /tmp/testq` with source [`shm_example_reader.c`](native/shm_example_reader.c):
+
+```C
+#include <libchronicle.h>
+#include <stdarg.h>
+#include <signal.h>
+
+static volatile int keepRunning = 1;
+
 void* parse_msg(unsigned char* base, int lim) {
     char* msg = calloc(1, lim+1);
     memcpy(msg, base, lim);
     return msg;
 }
 
-int append_msg(unsigned char* base, int sz, void* msg) {
-    memcpy(base, msg, sz);
-    return sz;
-}
-
-long sizeof_msg(void* msg) {
-    return strlen(msg);
-}
-
 int print_msg(void* ctx, uint64_t index, void* msg) {
     printf("[%" PRIu64 "] %s\n", index, (char*)msg);
+    free(msg);
     return 0;
 }
 
+void sigint_handler(int dummy) {
+    keepRunning = 0;
+}
+
 int main(const int argc, char **argv) {
-    queue_t* queue = chronicle_init(argv[1], &parse_msg, &sizeof_msg, &append_msg);
+    signal(SIGINT, sigint_handler);
+    queue_t* queue = chronicle_init(argv[1]);
+    chronicle_set_decoder(queue, &parse_msg);
+    if (chronicle_open(queue) != 0) exit(-1);
     chronicle_tailer(queue, &print_msg, NULL, 0);
-    chronicle_append(queue, "Hello World");
-    while (1) {
+
+    while (keepRunning) {
         usleep(500*1000);
         chronicle_peek();
     }
-    chronicle_close(queue);
+    printf("exiting\n");
+    chronicle_cleanup(queue);
 }
 ```
 
-Invoke this code passing the directory of an existing queue `./shmexample <queuedir>`, to which it will write a message `Hello World` then print all the data messages from index 0 to the end.
+See more examples in [python](bindings/python/) or [kdb](bindings/kdb/).
 
 ## Documenting the chronicle-queue format
 The format of the chronicle-queue files containing your data, the shared memory protocol, and the safe ordering of queue file maintenance is currently implementation defined. One hope is that this project will change that!
