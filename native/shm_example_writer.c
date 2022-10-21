@@ -14,6 +14,9 @@ size_t sizeof_msg(void* msg) {
 int main(const int argc, char **argv) {
     queue_t* queue = chronicle_init(argv[1]);
     chronicle_set_encoder(queue, &sizeof_msg, &append_msg);
+    chronicle_set_version(queue, 5);
+    chronicle_set_roll_scheme(queue, "FAST_HOURLY");
+    chronicle_set_create(queue, 1);
     if (chronicle_open(queue) != 0) exit(-1);
 
     char line[1024];

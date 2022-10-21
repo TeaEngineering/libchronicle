@@ -17,16 +17,16 @@ endif
 
 ODIR=obj
 LIBS=-lm
-DEPS=k.h wire.h wire.c libchronicle.h libchronicle.c buffer.h buffer.c
+DEPS=wire.h wire.c libchronicle.h libchronicle.c buffer.h buffer.c
 
 tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
 testsok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
-all: obj/hpet.so obj/shmmain obj/shm_example_reader obj/shm_example_writer obj/shmipc.so $(tests)
+all: obj/hpet.so obj/shmmain obj/shm_example_reader obj/shm_example_writer obj/libchronicle.so $(tests)
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
 
-$(ODIR)/%.so: %.c $(DEPS)
+$(ODIR)/%.so: $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
 
 %.to: %.c test/testdata.h $(DEPS)
