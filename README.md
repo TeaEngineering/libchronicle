@@ -64,7 +64,6 @@ void* parse_msg(unsigned char* base, int lim) {
 
 int print_msg(void* ctx, uint64_t index, void* msg) {
     printf("[%" PRIu64 "] %s\n", index, (char*)msg);
-    free(msg);
     return 0;
 }
 
@@ -75,7 +74,7 @@ void sigint_handler(int dummy) {
 int main(const int argc, char **argv) {
     signal(SIGINT, sigint_handler);
     queue_t* queue = chronicle_init(argv[1]);
-    chronicle_set_decoder(queue, &parse_msg);
+    chronicle_set_decoder(queue, &parse_msg, &free);
     if (chronicle_open(queue) != 0) exit(-1);
     chronicle_tailer(queue, &print_msg, NULL, 0);
 
