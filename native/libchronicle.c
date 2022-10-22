@@ -173,6 +173,7 @@ typedef struct queue {
     char* (*cycle2file_fn)(struct queue*,int);
 
     cparse_f          parser;
+    cparsefree_f      parser_free;
     csizeof_f         append_sizeof;
     cappend_f         append_write;
 
@@ -423,9 +424,10 @@ int chronicle_open(queue_t* queue) {
     return 0;
 }
 
-void chronicle_set_decoder(queue_t *queue, cparse_f parser) {
+void chronicle_set_decoder(queue_t *queue, cparse_f parser, cparsefree_f parser_free) {
     if (debug & !parser) printf("chronicle: setting NULL parser");
     queue->parser = parser;
+    queue->parser_free = parser_free;
 }
 
 void chronicle_set_encoder(queue_t *queue, csizeof_f append_sizeof, cappend_f append_write) {
@@ -662,10 +664,14 @@ parseqb_state_t parse_data_cb(unsigned char* base, int lim, uint64_t index, void
     if (debug) printbuf((char*)base, lim);
     // prep args and fire callback
     if (index > tailer->dispatch_after) {
-        COBJ msg = tailer->queue->parser(base, lim);
-        if (debug && msg==NULL) printf("chronicle: caution at index %" PRIu64 " parse function returned NULL, skipping\n", index);
 
-        // if asked to return inline, we skip dispatcher callback
+        COBJ msg = tailer->queue->parser(base, lim);
+        if (msg == NULL) {
+            if (debug) printf("chronicle: caution at index %" PRIu64 " parse function returned NULL, skipping\n", index);
+            return QB_AWAITING_ENTRY;
+        }
+        // if asked to return inline, we skip dispatcher callback, user
+        // must explicitly free parsed data with chronicle_return()
         if (tailer->collect) {
             tailer->collect->msg = msg;
             tailer->collect->index = index;
@@ -673,7 +679,10 @@ parseqb_state_t parse_data_cb(unsigned char* base, int lim, uint64_t index, void
             return QB_COLLECTED;
         }
         if (tailer->dispatcher) {
-            return tailer->dispatcher(tailer->dispatch_ctx, index, msg);
+            tailer->dispatcher(tailer->dispatch_ctx, index, msg);
+        }
+        if (tailer->queue->parser_free) {
+            tailer->queue->parser_free(msg);
         }
     }
     return QB_AWAITING_ENTRY;
@@ -1290,6 +1299,12 @@ COBJ chronicle_collect(tailer_t *tailer, collected_t *collected) {
     return collected->msg;
 }
 
+void chronicle_return(tailer_t *tailer, collected_t *collected) {
+    if (tailer->queue->parser && tailer->queue->parser_free) {
+        tailer->queue->parser_free(collected->msg);
+    }
+}
+
 tailstate_t chronicle_tailer_state(tailer_t* tailer) {
     return tailer->state;
 }
@@ -1359,7 +1374,7 @@ int chronicle_cleanup(queue_t* queue_delete) {
         parent = &queue->next;
         queue = queue->next;
     }
-    return chronicle_err("chronicle_close: queue already closed");
+    return chronicle_err("chronicle_cleanup: queue not found");
 }
 
 int queuefile_init(char* fn, queue_t* queue) {

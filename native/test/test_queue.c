@@ -73,7 +73,7 @@ static void queue_cqv5_sample_input(void **state) {
     queue_t* queue = chronicle_init(queuedir);
     assert_non_null(queue);
 
-    chronicle_set_decoder(queue, &wire_parse_textonly);
+    chronicle_set_decoder(queue, &wire_parse_textonly, &free);
     chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
     assert_int_equal(chronicle_open(queue), 0);
     assert_int_equal(chronicle_get_version(queue), 5);
@@ -87,23 +87,23 @@ static void queue_cqv5_sample_input(void **state) {
     assert_string_equal("one", p);
     assert_int_equal(result.index, 0x4A0500000000);
     assert_int_equal(chronicle_tailer_state(tailer), TS_COLLECTED);
-    free(p);
+    chronicle_return(tailer, &result);
 
     p = (char*)chronicle_collect(tailer, &result);
     assert_int_equal(result.index, 0x4A0500000001);
     assert_string_equal("two", result.msg);
     assert_int_equal(4, result.sz); // TODO: bug, should parser be able to re-write this?
-    free(p);
+    chronicle_return(tailer, &result);
 
     p = (char*)chronicle_collect(tailer, &result);
     assert_int_equal(result.index, 0x4A0500000002);
     assert_string_equal("three", result.msg);
-    free(p);
+    chronicle_return(tailer, &result);
 
     p = (char*)chronicle_collect(tailer, &result);
     assert_int_equal(result.index, 0x4A0500000003);
     assert_string_equal("a much longer item that will need encoding as variable length text", p);
-    free(p);
+    chronicle_return(tailer, &result);
 
     wirepad_t* pad = wirepad_init(1024);
     wirepad_text(pad, "four five");
@@ -124,15 +124,17 @@ static void queue_cqv5_sample_input(void **state) {
 
     p = (char*)chronicle_collect(tailer, &result);
     assert_string_equal("four five", p);
-    free(p);
+    chronicle_return(tailer, &result);
+
     p = (char*)chronicle_collect(tailer, &result);
     assert_string_equal("six", p);
-    free(p);
+    chronicle_return(tailer, &result);
 
     chronicle_collect(tailer, &result);
     assert_string_equal("seven", result.msg);
     assert_int_equal(result.index, 0x4A0600000000);
-    free(result.msg);
+    chronicle_return(tailer, &result);
+
     chronicle_tailer_close(tailer);
 
     // add a new tailer starting from midway through
@@ -140,17 +142,19 @@ static void queue_cqv5_sample_input(void **state) {
     chronicle_collect(tailer2, &result);
     assert_int_equal(result.index, 0x4A0500000003);
     assert_string_equal("a much longer item that will need encoding as variable length text", result.msg);
-    free(result.msg);
+    chronicle_return(tailer2, &result);
 
     chronicle_collect(tailer2, &result);
     assert_string_equal("four five", result.msg);
-    free(result.msg);
+    chronicle_return(tailer2, &result);
+
     chronicle_collect(tailer2, &result);
     assert_string_equal("six", result.msg);
-    free(result.msg);
+    chronicle_return(tailer2, &result);
+
     chronicle_collect(tailer2, &result);
     assert_string_equal("seven", result.msg);
-    free(result.msg);
+    chronicle_return(tailer2, &result);
 
     chronicle_cleanup(queue);
 
@@ -173,7 +177,7 @@ static void queue_cqv4_sample_input(void **state) {
     asprintf(&queuedir, "%s/cqv4", test_queuedir);
     queue_t* queue = chronicle_init(queuedir);
     assert_non_null(queue);
-    chronicle_set_decoder(queue, &parse_cqv4_textonly);
+    chronicle_set_decoder(queue, &parse_cqv4_textonly, &free);
     chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
     assert_int_equal(chronicle_open(queue), 0);
     assert_int_equal(chronicle_get_version(queue), 4);
@@ -187,19 +191,19 @@ static void queue_cqv4_sample_input(void **state) {
     char* p = (char*)chronicle_collect(tailer, &result);
     assert_non_null(p);
     assert_string_equal("one", p);
-    free(p);
+    chronicle_return(tailer, &result);
 
-    p = (char*)chronicle_collect(tailer, &result);
-    assert_string_equal("two", p);
-    free(p);
+    chronicle_collect(tailer, &result);
+    assert_string_equal("two", result.msg);
+    chronicle_return(tailer, &result);
 
     p = (char*)chronicle_collect(tailer, &result);
     assert_string_equal("three", p);
-    free(p);
+    chronicle_return(tailer, &result);
 
     p = (char*)chronicle_collect(tailer, &result);
     assert_string_equal("a much longer item that will need encoding as variable length text", p);
-    free(p);
+    chronicle_return(tailer, &result);
 
     chronicle_cleanup(queue);
 
@@ -275,13 +279,14 @@ static void queue_cqv5_new_queue(void **state) {
     wirepad_t* pad = wirepad_init(1024);
     wirepad_text(pad, "four five");
     uint64_t idx = chronicle_append(queue, pad);
+    wirepad_free(pad);
 
     chronicle_cleanup(queue);
 
     // re-open queue to check we find our text at the same index
     queue = chronicle_init(temp_dir);
     assert_non_null(queue);
-    chronicle_set_decoder(queue, &wire_parse_textonly);
+    chronicle_set_decoder(queue, &wire_parse_textonly, &free);
     assert_int_equal(chronicle_open(queue), 0);
     assert_int_equal(chronicle_get_version(queue), 5);
     assert_string_equal(chronicle_get_roll_scheme(queue), "DAILY");
@@ -290,14 +295,11 @@ static void queue_cqv5_new_queue(void **state) {
 
     tailer_t* tailer = chronicle_tailer(queue, NULL, NULL, 0);
 
-    char* p = (char*)chronicle_collect(tailer, &result);
-    assert_string_equal("four five", p);
+    chronicle_collect(tailer, &result);
+    assert_string_equal("four five", result.msg);
     assert_true(idx == result.index);
     assert_int_equal(chronicle_tailer_state(tailer), TS_COLLECTED);
-    free(p);
-
-    // chronicle_collect(tailer, &result);
-    // assert_int_equal(chronicle_tailer_state(tailer), TS_COLLECTED);
+    chronicle_return(tailer, &result);
 
     chronicle_cleanup(queue);
     delete_test_data(temp_dir);

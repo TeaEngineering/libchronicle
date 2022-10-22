@@ -82,7 +82,7 @@ int main(const int argc, char **argv) {
     char* dir = argv[optind];
     queue_t* queue = chronicle_init(dir);
     chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
-    chronicle_set_decoder(queue, &wire_parse_textonly);
+    chronicle_set_decoder(queue, &wire_parse_textonly, &free);
 
     if (chronicle_open(queue) != 0) {
         printf("failed to open %s", chronicle_strerror());

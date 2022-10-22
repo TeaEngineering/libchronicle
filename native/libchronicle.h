@@ -61,7 +61,8 @@ typedef void* DISPATCH_CTX;
 // csizeof_f    tells library how many bytes required to serialise user object
 // cappend_f    takes custom object and writes bytes to void*
 // cdispatch_f  takes custom object and index, delivers to application with user data
-typedef COBJ   (*cparse_f)    (unsigned char*,int);
+typedef COBJ   (*cparse_f)    (unsigned char*, int);
+typedef void   (*cparsefree_f)(COBJ);
 typedef size_t (*csizeof_f)   (COBJ);
 typedef void   (*cappend_f)   (unsigned char*,COBJ,size_t);
 typedef int    (*cdispatch_f) (DISPATCH_CTX,uint64_t,COBJ);
@@ -93,7 +94,7 @@ void        chronicle_set_version(queue_t* queue, int version);
 int         chronicle_set_roll_scheme(queue_t* queue, char* scheme);
 int         chronicle_set_roll_dateformat(queue_t* queue, char* scheme);
 void        chronicle_set_encoder(queue_t* queue, csizeof_f append_sizeof, cappend_f append_write);
-void        chronicle_set_decoder(queue_t* queue, cparse_f parser);
+void        chronicle_set_decoder(queue_t* queue, cparse_f parser, cparsefree_f parsefree);
 void        chronicle_set_create(queue_t* queue, int create);
 int         chronicle_open(queue_t* queue);
 int         chronicle_cleanup(queue_t* queue);
@@ -126,6 +127,7 @@ uint64_t    chronicle_append(queue_t *queue, COBJ msg);
 uint64_t    chronicle_append_ts(queue_t *queue, COBJ msg, long ms);
 
 COBJ        chronicle_collect(tailer_t *tailer, collected_t *collect);
+void        chronicle_return(tailer_t *tailer, collected_t *collect);
 
 struct ROLL_SCHEME {
     char*    name;
