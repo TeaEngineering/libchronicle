@@ -118,7 +118,7 @@ uint64_t    chronicle_tailer_index(tailer_t* tailer);
 
 void        chronicle_peek();
 void        chronicle_peek_queue(queue_t *queue);
-int         chronicle_peek_tailer(queue_t *queue, tailer_t *tailer);
+int         chronicle_peek_tailer(tailer_t *tailer);
 
 void        chronicle_debug();
 void        chronicle_debug_tailer(queue_t* queue, tailer_t* tailer);

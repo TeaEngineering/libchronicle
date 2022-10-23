@@ -15,6 +15,9 @@ class Collected(Structure):
                 ("sz", c_long),
                 ("index", c_longlong)]
 
+# typedef int    (*cdispatch_f) (DISPATCH_CTX,uint64_t,COBJ);
+TAILER_CB = CFUNCTYPE(c_int, c_void_p, c_longlong, c_char_p)
+
 cx.chronicle_init.argtype = c_char_p
 cx.chronicle_init.restype = c_void_p
 cx.chronicle_set_version.argtypes = [c_void_p, c_int]
@@ -52,21 +55,11 @@ cx.chronicle_strerror.restype = c_char_p
 
 cx.chronicle_debug.argtypes = []
 
-#q = cx.chronicle_init("/tmp/q1".encode())
-#cx.chronicle_set_version(q, 5)
-#cx.chronicle_set_create(q, 1)
-#cx.chronicle_debug()
-#assert(cx.chronicle_get_version(q) == 5)
-#assert(cx.chronicle_set_roll_scheme(q, b"FAST_DAILY") == 0)
-#assert(cx.chronicle_get_roll_scheme(q) == b"FAST_DAILY")
-#
-#op = cx.chronicle_open(q)
-#assert(op == 0)
-#
-#j = cx.chronicle_append(q, b"hello from python")
-#print(f'wrote as {j}')
-#cx.chronicle_debug()
+cx.chronicle_peek_queue.argtypes = [c_void_p]
+cx.chronicle_peek_queue.restype = None
 
+cx.chronicle_peek_tailer.argtypes = [c_void_p]
+cx.chronicle_peek_tailer.restype = None
 
 class Queue():
 	def __init__(self, directory: str, create: bool=False, version:int=0, roll_scheme:Optional[str]=None):
@@ -97,10 +90,16 @@ class Queue():
 	def append(self, data: bytes):
 		return cx.chronicle_append(self.q, data)
 
-	def tailer(self, index: int=0):
+	def tailer(self, index: int=0, cb=None):
 		# for now we don't use callback api, just blocking collect
-		tailer = cx.chronicle_tailer(self.q, None, None, index)
+		cb_func = None
+		if cb:
+			cb_func = TAILER_CB(cb)
+		tailer = cx.chronicle_tailer(self.q, cb_func, None, index)
 		return Tailer(tailer)
+
+	def peek(self):
+		cx.chronicle_peek_queue(self.q)
 
 class Tailer():
 	def __init__(self, tailer):
@@ -121,3 +120,5 @@ class Tailer():
 		## cx.chronicle_return(self.tailer, self.collected)
 		return (self.collected.index, data)
 
+	def peek(self):
+		cx.chronicle_peek_tailer(self.tailer)
