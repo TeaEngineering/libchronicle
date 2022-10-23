@@ -170,8 +170,6 @@ typedef struct queue {
     int               cycle_shift;
     uint64_t          seqnum_mask;
 
-    char* (*cycle2file_fn)(struct queue*,int);
-
     cparse_f          parser;
     cparsefree_f      parser_free;
     csizeof_f         append_sizeof;
@@ -410,7 +408,6 @@ int chronicle_open(queue_t* queue) {
     //if (queue->index_spacing == 0) return chronicle_err("qfi index_spacing fail");
     if (queue->roll_name == NULL) return chronicle_err("qfi roll scheme unknown");
 
-    queue->cycle2file_fn = &chronicle_get_cycle_fn;
     queue->cycle_shift = 32;
     queue->seqnum_mask = 0x00000000FFFFFFFF;
 
@@ -861,7 +858,7 @@ tailstate_t chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
             if (tailer->qf_fd > 0) { // close the fid if open
                 close(tailer->qf_fd);
             }
-            tailer->qf_fn = queue->cycle2file_fn(queue, cycle);
+            tailer->qf_fn = chronicle_get_cycle_fn(queue, cycle);
             tailer->qf_tip = 0;
 
             printf("shmipc: opening cycle %" PRIu64 " filename %s\n", cycle, tailer->qf_fn);
