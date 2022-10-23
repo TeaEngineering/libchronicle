@@ -5,7 +5,9 @@
 
 ## Getting started
 
-Our example is in two parts. The writing side is [`native/shm_example_writer.c`](native/shm_example_writer.c) and can be built by `make`:
+See more examples in [python](bindings/python/) or [kdb](bindings/kdb/).
+
+Our C example is in two parts. The writing side is [`native/shm_example_writer.c`](native/shm_example_writer.c) and can be built by `make`:
 
     $ git clone git@github.com:TeaEngineering/libchronicle.git
     $ cd libchronicle/native
@@ -37,8 +39,8 @@ int main(const int argc, char **argv) {
     while (1) {
         char* g = fgets(line, 1024, stdin);
         if (g == NULL) break;
-        g[strlen(g) - 1] = 0;
-        long int index = chronicle_append(queue, g);
+        line[strlen(line) - 1] = 0; // remove line break
+        long int index = chronicle_append(queue, line);
         printf("[%" PRIu64 "] %s\n", index, (char*)g);
     }
     chronicle_cleanup(queue);
@@ -86,8 +88,6 @@ int main(const int argc, char **argv) {
     chronicle_cleanup(queue);
 }
 ```
-
-See more examples in [python](bindings/python/) or [kdb](bindings/kdb/).
 
 ## Documenting the chronicle-queue format
 The format of the chronicle-queue files containing your data, the shared memory protocol, and the safe ordering of queue file maintenance is currently implementation defined. One hope is that this project will change that!
@@ -143,29 +143,33 @@ to avoid probing the file system execessively with `stat` system calls during a 
 
 ## Bindings
 
-This repository contains command line C utilities, `shmmain` as well as language bindings `shmipc.so` for kdb.
+This repository contains command line C utilities, as well as language bindings for `libchronicle.so` for:
+- [python](bindings/python/)
+- [kdb](bindings/kdb/)
+
 Planned:
-- python
 - nodejs
 
-## Issues
-The tool `shmmain` can replay, or follow, _DAILY_ or _DAILY_FAST_ queues files as writers proceed. So far as I can tell `shmmain` is compatable with the `InputMain` and `OutputMain` exmaples provided by Chronicle Software Ltd, with either v4 or v5 queues.
+## Development and Compatability Status
 
-- [ ] use/append to index pages #1
-- [ ] create a completely empty queue #15
-- [ ] v5 rollover tests
-- [ ] addiontal RollScheme support
+Queue creation and rollover is implemented for v4 and v5 queues, plus all of the standard roll schemes.
+So far as possible our reader and writer examples are compatable with the `InputMain` and `OutputMain` exmaples provided by Chronicle Software Ltd.
+
+The main missing feature is reading/writing the index structures maintained in the metadata pages. This allows joining an existing queue to be done very cheaply.
+
+In order to read and write queue metadata, we have a fairly complete implementation of the 'chroicle-wire' serialisation format, implemented by `wire.c` and `wire.h` that might be useful if the data in your queue is written using that format.
 
 If you can reproduce a segfault on an otherwise valid queuefile, examples would be happily recieved via. a Github Issue.
 
-
 ## Unit tests
 
-To build the test suite install https://cmocka.org/
+To build the test suite first install [cmocka](https://cmocka.org/).
 
     $ sudo apt install libcmocka-dev
     $ cd native
     $ make test
+
+Some of the test cases use queues written by Chronicle Queue in Java, using test data written by [these Java files](java/).
 
 ## Fuzzer & Coverage
 There is basic code coverage reporting using `clang`'s coverage suite, tested on a Mac. This uses shmmain to read and write some entries and shows line by line coverage. Try:
