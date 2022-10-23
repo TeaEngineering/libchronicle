@@ -211,7 +211,6 @@ void wirepad_extent(wirepad_t* pad, int sz) {
     while (remain < 0) {
         pad->sz = pad->sz * 2;
         pad->base = realloc(pad->base, pad->sz);
-        // pad->pos = ...
         remain = pad->sz - used - sz;
     }
 }
@@ -256,7 +255,7 @@ void wirepad_uint64_aligned(wirepad_t* pad, uint64_t v) {
     // requires aligning the A7 prefix before it to the last byte of 8
     int padding = -((pad->pos + 1) - pad->base) & 0x7; // current (position+1), align to 8
 
-    // optimise padding between 0x8F and 0x8E
+    // optimise padding between 0x8F (single bytes) and 0x8E (var bytes)
     if (padding == 0) {
         // emit nothing
     } else if (padding < 5) {
@@ -264,13 +263,14 @@ void wirepad_uint64_aligned(wirepad_t* pad, uint64_t v) {
         pad->pos[1] = 0x8F;
         pad->pos[2] = 0x8F;
         pad->pos[3] = 0x8F;
-        pad->pos = pad->pos + padding;
+        pad->pos += padding;
     } else {
         pad->pos[0] = 0x8E;
         uint32_t header = padding - 5;
         memcpy(pad->pos + 1, &header, sizeof(header));
-        // TODO: byte 5, 6, 7 left uninitialised
-        pad->pos += 5 + header;
+        // set possible byte 5, 6, 7 to zero
+        for(int i = 5; i < padding; i++) pad->pos[i] = 0;
+        pad->pos += padding;
     }
     pad->pos[0] = 0xA7; // INT64
     memcpy(pad->pos+1, &v, sizeof(v));
@@ -462,7 +462,7 @@ unsigned char* wirepad_base(wirepad_t* pad) {
 // libchronicle.c
 //
 // writer
-// sizeof and wrote take a wirepad_t argument, cast down to void* here for ease of use with libchronicle
+// sizeof and write take a wirepad_t argument, cast down to void* here for ease of use with libchronicle
 size_t wirepad_sizeof(void* msg) {
     wirepad_t* pad = (wirepad_t*)msg;
     return pad->pos - pad->base;
