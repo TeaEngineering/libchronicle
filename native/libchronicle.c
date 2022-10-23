@@ -394,7 +394,7 @@ int chronicle_open(queue_t* queue) {
     }
 
     // check we loaded roll settings from queuefile or metadata
-    if (queue->version == 0) return chronicle_err("qfi version detect fail");
+    // Note these might be the settings we wrote during create
     if (queue->roll_format == 0) return chronicle_err("qfi roll_format fail");
     if (queue->roll_length == 0) return chronicle_err("qfi roll_length fail");
     if (queue->roll_epoch == -1) return chronicle_err("qfi roll_epoch fail");
