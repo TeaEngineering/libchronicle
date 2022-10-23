@@ -28,6 +28,7 @@ static void queue_not_exist(void **state) {
     assert_non_null(queue);
     assert_int_not_equal(chronicle_open(queue), 0);
     assert_string_equal(chronicle_strerror(), "dir stat fail");
+    chronicle_cleanup(queue);
 }
 
 static void queue_is_file(void **state) {
