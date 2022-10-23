@@ -200,15 +200,17 @@ uint32_t pid_header = 0;
 queue_t* queue_head = NULL;
 
 
-// forward declarations
+// forward declarations that are not part of the public api
 void parse_dirlist(queue_t*);
 void parse_queuefile_meta(unsigned char*, int, queue_t*);
 void parse_queuefile_data(unsigned char*, int, queue_t*, tailer_t*, uint64_t);
 int queuefile_init(char*, queue_t*);
 int directory_listing_reopen(queue_t*, int, int);
 int directory_listing_init(queue_t*, uint64_t cycle);
-long chronicle_clock_ms(queue_t*);
-uint64_t chronicle_cycle_from_ms(queue_t*, long);
+
+long       chronicle_clock_ms(queue_t*);
+uint64_t   chronicle_cycle_from_ms(queue_t*, long);
+int        chronicle_peek_queue_tailer(queue_t*, tailer_t*);
 
 // compare and swap, 32 bits, addressed by a 64bit pointer
 static inline uint32_t lock_cmpxchgl(unsigned char *mem, uint32_t newval, uint32_t oldval) {
@@ -829,13 +831,13 @@ void chronicle_peek_queue(queue_t *queue) {
 
     tailer_t *tailer = queue->tailers;
     while (tailer != NULL) {
-        chronicle_peek_tailer(queue, tailer);
+        chronicle_peek_queue_tailer(queue, tailer);
 
         tailer = tailer->next;
     }
 }
 
-tailstate_t chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
+tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
     // for each cycle file { for each block { for each entry { emit }}}
     // this method runs like a generator, suspended in the innermost
     // iteration when we hit the end of the file and pick up at the next peek()
@@ -978,8 +980,12 @@ tailstate_t chronicle_peek_tailer_r(queue_t *queue, tailer_t *tailer) {
     }
 }
 
-int chronicle_peek_tailer(queue_t *queue, tailer_t *tailer) {
-    return tailer->state = chronicle_peek_tailer_r(queue, tailer);
+int chronicle_peek_tailer(tailer_t *tailer) {
+    return chronicle_peek_queue_tailer(tailer->queue, tailer);
+}
+
+int chronicle_peek_queue_tailer(queue_t *queue, tailer_t *tailer) {
+    return tailer->state = chronicle_peek_queue_tailer_r(queue, tailer);
 }
 
 void chronicle_debug() {
@@ -1111,9 +1117,9 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
 
     // poll the appender
     while (1) {
-        int r = chronicle_peek_tailer(queue, appender);
+        int r = chronicle_peek_queue_tailer(queue, appender);
         // TODO: 2nd call defensive to ensure 1 whole blocksize is available to put
-        r = chronicle_peek_tailer(queue, appender);
+        r = chronicle_peek_queue_tailer(queue, appender);
         if (debug) printf("shmipc: writeloop appender in state %d\n", r);
 
         if (r == TS_AWAITING_QUEUEFILE) {
@@ -1284,7 +1290,7 @@ COBJ chronicle_collect(tailer_t *tailer, collected_t *collected) {
     uint64_t delaycount = 0;
     peek_queue_modcount(tailer->queue);
     while (1) {
-        int r = chronicle_peek_tailer(tailer->queue, tailer);
+        int r = chronicle_peek_tailer(tailer);
         if (debug) printf("collect value returns %d into object %p\n", r, tailer->collect);
         if (r == TS_COLLECTED) {
             break;
