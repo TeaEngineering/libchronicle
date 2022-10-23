@@ -23,8 +23,8 @@ int main(const int argc, char **argv) {
     while (1) {
         char* g = fgets(line, 1024, stdin);
         if (g == NULL) break;
-        g[strlen(g) - 1] = 0;
-        long int index = chronicle_append(queue, g);
+        line[strlen(line) - 1] = 0; // remove line break
+        long int index = chronicle_append(queue, line);
         printf("[%" PRIu64 "] %s\n", index, (char*)g);
     }
     chronicle_cleanup(queue);
