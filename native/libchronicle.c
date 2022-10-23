@@ -398,15 +398,12 @@ int chronicle_open(queue_t* queue) {
     if (queue->roll_format == 0) return chronicle_err("qfi roll_format fail");
     if (queue->roll_length == 0) return chronicle_err("qfi roll_length fail");
     if (queue->roll_epoch == -1) return chronicle_err("qfi roll_epoch fail");
-
-    char* roll_format_auto = queue->roll_format;
-    // defer this until queuefile access
-    chronicle_set_roll_dateformat(queue, roll_format_auto);
-    free(roll_format_auto);
-
+    if (chronicle_set_roll_dateformat(queue, queue->roll_format) != 0) {
+        printf("roll format detected %s\n", queue->roll_format);
+        return chronicle_err("detected roll_format is not recognised");
+    }
     //if (queue->index_count == 0) return chronicle_err("qfi index_count fail");
     //if (queue->index_spacing == 0) return chronicle_err("qfi index_spacing fail");
-    if (queue->roll_name == NULL) return chronicle_err("qfi roll scheme unknown");
 
     queue->cycle_shift = 32;
     queue->seqnum_mask = 0x00000000FFFFFFFF;
@@ -471,9 +468,11 @@ struct ROLL_SCHEME chronicle_roll_schemes[] = {
 
 void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
     if (debug) printf("chronicle: chronicle_set_roll_scheme applying %s\n", x.name);
-
-    queue->roll_name   = x.name;
-    queue->roll_format = x.formatstr;
+    free(queue->roll_name);
+    free(queue->roll_format);
+    free(queue->roll_strftime);
+    queue->roll_name   = strdup(x.name);
+    queue->roll_format = strdup(x.formatstr);
     queue->roll_length = x.roll_length_secs * 1000;
 
     // remove appostrophe from java's format string and build
@@ -530,8 +529,6 @@ void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
 }
 
 int chronicle_set_roll_scheme(queue_t* queue, char* scheme) {
-    queue->roll_name   = NULL;
-    queue->roll_format = NULL;
     for (int i = 0; i < sizeof(chronicle_roll_schemes)/sizeof(chronicle_roll_schemes[0]); i++) {
         struct ROLL_SCHEME x = chronicle_roll_schemes[i];
         if (strcmp(scheme, x.name) == 0) {
@@ -550,15 +547,14 @@ char* chronicle_get_roll_format(queue_t* queue) {
 }
 
 int chronicle_set_roll_dateformat(queue_t* queue, char* dateformat) {
-    queue->roll_name   = NULL;
-    queue->roll_format = NULL;
     for (int i = 0; i < sizeof(chronicle_roll_schemes)/sizeof(chronicle_roll_schemes[0]); i++) {
         struct ROLL_SCHEME x = chronicle_roll_schemes[i];
         if (strcmp(dateformat, x.formatstr) == 0) {
             chronicle_apply_roll_scheme(queue, x);
+            return 0;
         }
     }
-    return 0;
+    return -1;
 }
 
 void chronicle_set_create(queue_t* queue, int create) {
@@ -719,6 +715,7 @@ void handle_dirlist_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "format", sz) == 0) {
         if (debug) printf("  v5 roll_format set to %.*s\n", dsz, data);
+        free(queue->roll_format);
         queue->roll_format = strndup(data, dsz);
     }
 }
@@ -753,6 +750,8 @@ void handle_qf_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
 void handle_qf_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t* cbs) {
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "format", sz) == 0) {
+        if (debug) printf("  v4 roll_format qf set to %.*s\n", dsz, data);
+        free(queue->roll_format);
         queue->roll_format = strndup(data, dsz);
     }
 }
@@ -1362,7 +1361,9 @@ int chronicle_cleanup(queue_t* queue_delete) {
             free(queue->dirlist_name);
             free(queue->dirname);
             free(queue->queuefile_pattern);
-            // roll_format points to global static struct
+            free(queue->roll_strftime);
+            free(queue->roll_format);
+            free(queue->roll_name);
             globfree(&queue->queuefile_glob);
             free(queue);
 
