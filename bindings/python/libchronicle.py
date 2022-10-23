@@ -1,9 +1,15 @@
 from ctypes import *
+from ctypes.util import find_library
 from typing import Optional
 import os
 
-cx = cdll.LoadLibrary(os.path.expanduser("~/repos/libchronicle/native/obj/libchronicle.so"))
+lib = find_library("chronicle")
+if lib is None:
+	# setup default lib location relative to script
+	root_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+	lib = os.path.join(root_path, 'native', 'obj', 'libchronicle.so')
 
+cx = cdll.LoadLibrary(lib)
 
 #typedef struct {
 #    COBJ msg;
