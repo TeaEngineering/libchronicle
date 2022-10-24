@@ -307,6 +307,33 @@ static void queue_cqv5_new_queue(void **state) {
     free(temp_dir);
 }
 
+static void queue_cqv5_new_test4_queue_nodata(void **state) {
+    // create queue in an empty directory
+    char* temp_dir;
+    asprintf(&temp_dir, "%s/chronicle.test.XXXXXX", P_tmpdir);
+    temp_dir = mkdtemp(temp_dir);
+
+    queue_t* queue = chronicle_init(temp_dir);
+    chronicle_set_version(queue, 5);
+    chronicle_set_roll_scheme(queue, "TEST4_SECONDLY");
+    chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
+    chronicle_set_create(queue, 1);
+    assert_int_equal(chronicle_open(queue), 0);
+    chronicle_cleanup(queue);
+
+    // re-open queue to check
+    queue = chronicle_init(temp_dir);
+    assert_non_null(queue);
+    chronicle_set_decoder(queue, &wire_parse_textonly, &free);
+    assert_int_equal(chronicle_open(queue), 0);
+    assert_int_equal(chronicle_get_version(queue), 5);
+    assert_string_equal(chronicle_get_roll_scheme(queue), "TEST4_SECONDLY");
+
+    chronicle_cleanup(queue);
+    delete_test_data(temp_dir);
+    free(temp_dir);
+}
+
 int main(int argc, char* argv[]) {
     argv0 = argv[0];
     const struct CMUnitTest tests[] = {
@@ -318,6 +345,7 @@ int main(int argc, char* argv[]) {
         cmocka_unit_test(queue_cqv4_sample_input),
         cmocka_unit_test(queue_cqv5_sample_input),
         cmocka_unit_test(queue_cqv5_new_queue),
+        cmocka_unit_test(queue_cqv5_new_test4_queue_nodata),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

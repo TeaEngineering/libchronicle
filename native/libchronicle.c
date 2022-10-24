@@ -518,6 +518,10 @@ void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
             p[px++] = '%';
             p[px++] = 'M';
             fi += 2;
+        } else if (strncmp(&f[fi], "ss", 2) == 0) {
+            p[px++] = '%';
+            p[px++] = 'S';
+            fi += 2;
         } else {
             printf("chronicle: parser conversion of %s exploded at fi=%d px=%d inquote=%d buffer='%s'\n", queue->roll_format, fi, px, inquote, p);
             return;
@@ -697,18 +701,13 @@ void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t*
     }
 }
 
-void handle_dirlist_uint32(char* buf, int sz, uint32_t data, wirecallbacks_t* cbs){
+void handle_dirlist_uint64(char* buf, int sz, uint64_t data, wirecallbacks_t* cbs){
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
-        if (debug) printf("  v5 roll_length set to %x\n", data);
+        if (debug) printf("  v5 roll_length set to %lx\n", data);
         queue->roll_length = data;
-    }
-}
-
-void handle_dirlist_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
-    queue_t* queue = (queue_t*)cbs->userdata;
-    if (strncmp(buf, "epoch", sz) == 0) {
-        if (debug) printf("  v5 roll_epoch set to %x\n", data);
+    } else if (strncmp(buf, "epoch", sz) == 0) {
+        if (debug) printf("  v5 roll_epoch set to %lx\n", data);
         queue->roll_epoch = data;
     }
 }
@@ -722,29 +721,17 @@ void handle_dirlist_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t
     }
 }
 
-void handle_qf_uint32(char* buf, int sz, uint32_t data, wirecallbacks_t* cbs){
+void handle_qf_uint64(char* buf, int sz, uint64_t data, wirecallbacks_t* cbs){
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
-        if (debug) printf(" v4 roll_length set to %x\n", data);
+        if (debug) printf(" v4 roll_length set to %lx\n", data);
         queue->roll_length = data;
-    }
-}
-
-void handle_qf_uint16(char* buf, int sz, uint16_t data, wirecallbacks_t* cbs) {
-    queue_t* queue = (queue_t*)cbs->userdata;
-    if (strncmp(buf, "indexCount", sz) == 0) {
+    } else if (strncmp(buf, "indexCount", sz) == 0) {
         queue->index_count = data;
     } else if (strncmp(buf, "indexSpacing", sz) == 0) {
         queue->index_spacing = data;
-    }
-}
-
-void handle_qf_uint8(char* buf, int sz, uint8_t data, wirecallbacks_t* cbs) {
-    queue_t* queue = (queue_t*)cbs->userdata;
-    if (strncmp(buf, "indexSpacing", sz) == 0) {
-        queue->index_spacing = data;
     } else if (strncmp(buf, "epoch", sz) == 0) {
-        if (debug) printf(" v4 roll_epoch set to %x\n", data);
+        if (debug) printf(" v4 roll_epoch set to %lx\n", data);
         queue->roll_epoch = data;
     }
 }
@@ -773,8 +760,7 @@ void parse_dirlist(queue_t* queue) {
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
-    hcbs.field_uint32 = &handle_dirlist_uint32;
-    hcbs.field_uint8 = &handle_dirlist_uint8;
+    hcbs.field_uint64 = &handle_dirlist_uint64;
     hcbs.field_char = &handle_dirlist_text;
     hcbs.userdata = queue;
     parse_queue_block(queue, &base, &index, base+lim, &hcbs, &parse_wire_data, &cbs);
@@ -785,9 +771,7 @@ void parse_queuefile_meta(unsigned char* base, int limit, queue_t* queue) {
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
-    hcbs.field_uint32 = &handle_qf_uint32;
-    hcbs.field_uint16 = &handle_qf_uint16;
-    hcbs.field_uint8 =  &handle_qf_uint8;
+    hcbs.field_uint64 = &handle_qf_uint64;
     hcbs.field_char = &handle_qf_text;
     hcbs.userdata = queue;
     parse_queue_block(queue, &base, &index, base+limit, &hcbs, NULL, NULL);
@@ -1500,7 +1484,7 @@ int directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
     if ((queue->dirlist = mmap(0, queue->dirlist_statbuf.st_size, mmap_prot, MAP_SHARED, queue->dirlist_fd, 0)) == MAP_FAILED)
         return chronicle_err("dirlist mmap fail");
 
-    if (debug) printf("shmipc: parsing dirlist\n");
+    if (debug) printf("shmipc: parsing dirlist %s\n", queue->dirlist_name);
     parse_dirlist(queue);
 
     // check the polled fields in header section were all resolved to pointers within the map

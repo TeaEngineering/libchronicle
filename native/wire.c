@@ -73,7 +73,7 @@ void wire_parse(unsigned char* base, int lim, wirecallbacks_t* cbs) {
         switch(control) {
             case 0x00 ... 0x7F: // NUM
                 if (wire_trace) printf(" Field %.*s = %d (uint8)\n", (int)field_name_sz, field_name, control);
-                if (cbs->field_uint8) cbs->field_uint8(field_name, field_name_sz, control, cbs);
+                if (cbs->field_uint64) cbs->field_uint64(field_name, field_name_sz, (uint64_t)control, cbs);
                 break;
             case 0xB9: // EVENT_NAME
                 p+= read_stop_uint(p, &ev_name_sz);
@@ -116,13 +116,13 @@ void wire_parse(unsigned char* base, int lim, wirecallbacks_t* cbs) {
             case 0xA5: // INT16
                 memcpy(&padding16, p, sizeof(padding16));
                 if (wire_trace) printf(" Field %.*s = %hu (uint16)\n", (int)field_name_sz, field_name, padding16);
-                if (cbs->field_uint16) cbs->field_uint16(field_name, field_name_sz, padding16, cbs);
+                if (cbs->field_uint64) cbs->field_uint64(field_name, field_name_sz, (uint64_t)padding16, cbs);
                 p += 2;
                 break;
             case 0xA6: // INT32
                 memcpy(&padding32, p, sizeof(padding32));
                 if (wire_trace) printf(" Field %.*s = %u (uint32)\n", (int)field_name_sz, field_name, padding32);
-                if (cbs->field_uint32) cbs->field_uint32(field_name, field_name_sz, padding32, cbs);
+                if (cbs->field_uint64) cbs->field_uint64(field_name, field_name_sz, (uint64_t)padding32, cbs);
                 p += 4;
                 break;
             case 0xA7: // INT64
