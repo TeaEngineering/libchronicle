@@ -30,9 +30,6 @@ typedef struct wirecallbacks {
     void (*event_name)(char*,int,struct wirecallbacks*);
     void (*type_prefix)(char*,int,struct wirecallbacks*);
 
-    void (*field_uint8)(char*,int,uint8_t,struct wirecallbacks*);
-    void (*field_uint16)(char*,int,uint16_t,struct wirecallbacks*);
-    void (*field_uint32)(char*,int,uint32_t,struct wirecallbacks*);
     void (*field_uint64)(char*,int,uint64_t,struct wirecallbacks*);
     void (*field_char)(char*,int,char*,int,struct wirecallbacks*);
 
