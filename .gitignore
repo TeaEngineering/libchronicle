@@ -2,4 +2,5 @@
 native/k.h
 native/test/*.to
 native/test/*.tok
+native/test/*.tvg
 __pycache__
