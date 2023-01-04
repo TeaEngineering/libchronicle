@@ -165,11 +165,16 @@ If you can reproduce a segfault on an otherwise valid queuefile, examples would 
 
 To build the test suite first install [cmocka](https://cmocka.org/).
 
-    $ sudo apt install libcmocka-dev
+    $ sudo apt install libcmocka-dev libarchive-dev
     $ cd native
     $ make test
 
 Some of the test cases use queues written by Chronicle Queue in Java, using test data written by [these Java files](java/).
+
+Tests can also be run under valgrind:
+
+    $ sudo apt install valgrind
+    $ make -C native grind
 
 ## Fuzzer & Coverage
 There is basic code coverage reporting using `clang`'s coverage suite, tested on a Mac. This uses shmmain to read and write some entries and shows line by line coverage. Try:

@@ -20,8 +20,10 @@ LIBS=-lm
 DEPS=wire.h wire.c libchronicle.h libchronicle.c buffer.h buffer.c
 
 tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
-testsok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
-all: obj/hpet.so obj/shmmain obj/shm_example_reader obj/shm_example_writer obj/libchronicle.so $(tests)
+tests_ok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
+tests_vg := $(patsubst %.c,%.tvg,$(wildcard test/test*.c))
+
+all: obj/hpet.so obj/shmmain obj/shm_example_reader obj/shm_example_writer obj/libchronicle.so
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
@@ -34,6 +36,9 @@ $(ODIR)/%.so: $(DEPS)
 
 %.tok: %.to
 	$< && touch $@
+
+%.tvg: %.to
+	valgrind --track-origins=yes --leak-check=full $< && touch $@
 
 $(ODIR)/fuzzmain: fuzzmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
@@ -52,9 +57,6 @@ coverage: obj/shmcov
 $(ODIR)/shmcov: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping -O0 -g
 
-grind: $(ODIR)/shmmain
-	valgrind --track-origins=yes --leak-check=full $(ODIR)/shmmain :../java/out
-
 syms:
 	nm -D ../../kdb/l64/q | grep " T "
 
@@ -68,9 +70,11 @@ $(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
 
 .PHONY: clean grind coverage syms fuzz test
 
-test: $(testsok)
+test: $(tests_ok)
+
+grind: $(tests_vg)
 
 clean:
 	rm -f *~ core $(INCDIR)/*~ default.prof*
 	rm -Rf $(ODIR)/*
-	rm -Rf test/*.to test/*.tok
+	rm -Rf test/*.to test/*.tok test/*.tvg
