@@ -63,10 +63,10 @@ syms:
 fuzz: $(ODIR)/shmmain.fuzz
 	# brew install afl-fuzz
 	mkdir -p test/fuzz_output
-	afl-fuzz -i test/fuzz_input -o test/fuzz_output $(ODIR)/shmmain.fuzz -F - :../java/out
+	AFL_SKIP_CPUFREQ=1 afl-fuzz -i test/fuzz_input -o test/fuzz_output $(ODIR)/shmmain.fuzz -F - :../java/out
 
 $(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
-	/usr/local/Cellar/afl-fuzz/2.52b/bin/afl-clang -o $@ $< $(CFLAGS) -g -O0
+	afl-clang -o $@ $< $(CFLAGS) -g -O0
 
 .PHONY: clean grind coverage syms fuzz test
 
