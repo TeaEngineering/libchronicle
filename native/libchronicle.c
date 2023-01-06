@@ -107,7 +107,7 @@ typedef struct {
     unsigned char *modcount;
 } dirlist_fields_t;
 
-typedef struct tailer {
+struct tailer {
     uint64_t          dispatch_after; // for resume support
     tailstate_t       state;
     cdispatch_f       dispatcher;
@@ -135,9 +135,9 @@ typedef struct tailer {
 
     struct tailer*    next;
     struct tailer*    prev;
-} tailer_t;
+};
 
-typedef struct queue {
+struct queue {
     char*             dirname;
     uint              blocksize;
     uint8_t           version;
@@ -182,7 +182,7 @@ typedef struct queue {
     tailer_t*         appender;
 
     struct queue*     next;
-} queue_t;
+};
 
 
 typedef enum {QB_AWAITING_ENTRY, QB_BUSY, QB_REACHED_EOF, QB_NEED_EXTEND, QB_NULL_ITEM, QB_COLLECTED} parseqb_state_t;

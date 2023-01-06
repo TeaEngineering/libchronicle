@@ -174,14 +174,14 @@ void wire_parse(unsigned char* base, int lim, wirecallbacks_t* cbs) {
     }
 }
 
-typedef struct wirepad {
+struct wirepad {
     int      sz;
     unsigned char*    pos;
     unsigned char*    base;
 
     int               nest;
     unsigned char*    nest_enter_pos[10];
-} wirepad_t;
+};
 
 wirepad_t*  wirepad_init(int initial_sz) {
     wirepad_t* pad = malloc(sizeof(wirepad_t));
