@@ -40,8 +40,6 @@ $(ODIR)/%.so: $(DEPS)
 %.tvg: %.to
 	valgrind --track-origins=yes --leak-check=full $< && touch $@
 
-$(ODIR)/fuzzmain: fuzzmain.c shmipc.c mock_k.h $(DEPS)
-	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
 $(ODIR)/shmmain: shmmain.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
@@ -50,12 +48,14 @@ $(ODIR)/shm_example%: shm_example%.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
 coverage: obj/shmcov
-	obj/shmcov -v -a WORLD :demo/stress
-	/Library/Developer/CommandLineTools/usr/bin/llvm-profdata merge default.profraw -output=default.profout
-	/Library/Developer/CommandLineTools/usr/bin/llvm-cov show -instr-profile default.profout obj/shmcov
+	rm -Rf test/coverage_queue
+	mkdir -p test/coverage_queue
+	obj/shmcov -v -c -a WORLD test/coverage_queue
+	llvm-profdata merge default.profraw -output=default.profout
+	llvm-cov show -instr-profile default.profout obj/shmcov
 
-$(ODIR)/shmcov: shmmain.c shmipc.c mock_k.h $(DEPS)
-	$(CC) -o $@ $< $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping -O0 -g
+$(ODIR)/shmcov: shmmain.c $(DEPS)
+	clang -o $@ $< $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping -O0 -g
 
 k.h:
 	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
@@ -63,13 +63,14 @@ k.h:
 $(ODIR)/fuzzmain: fuzzmain.c k.h mock_k.h $(DEPS)
 	afl-clang -o $@ $< $(CFLAGS) -g -O0
 
-fuzz: $(ODIR)/shmmain.fuzz
+fuzz: $(ODIR)/fuzzmain
 	# brew install afl-fuzz
-	mkdir -p test/fuzz_output
-	AFL_SKIP_CPUFREQ=1 afl-fuzz -i test/fuzz_input -o test/fuzz_output $(ODIR)/shmmain.fuzz -F - :../java/out
+	# sudo apt install afl++
+	rm -Rf test/fuzz_output/*
+	rm -Rf test/fuzz_queue/
+	mkdir -p test/fuzz_output test/fuzz_queue
+	AFL_SKIP_CPUFREQ=1 afl-fuzz -i test/fuzz_input -o test/fuzz_output $(ODIR)/fuzzmain test/fuzz_queue -
 
-$(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
-	afl-clang -o $@ $< $(CFLAGS) -g -O0
 
 .PHONY: clean grind coverage fuzz test install
 
