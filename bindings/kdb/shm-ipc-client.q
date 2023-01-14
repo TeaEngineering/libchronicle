@@ -1,7 +1,7 @@
 \l shm.q
 
-.shmipc.init[`:java/in;`kx];
-.shmipc.init[`:java/out;`kx];
+.shmipc.init[`:java/in;`kx;5;0b];
+.shmipc.init[`:java/out;`kx;5;0b];
 
 / fd:.timer.hpet_open[{.shmipc.peek[]}; 0D00:00:00.010000000];
 hi:.shmipc.tailer[`:java/out;{[x;y]};0];
