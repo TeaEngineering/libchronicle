@@ -8,10 +8,10 @@ CC=gcc
 CFLAGS=libchronicle.c wire.c buffer.c -fPIC -I$(IDIR) -Wall
 CDFLAGS=-shared
 ifeq ($(detected_OS),Darwin)  # Mac OS X
-    CDFLAGS += -undefined dynamic_lookup
+	CDFLAGS += -undefined dynamic_lookup
 endif
 ifeq ($(detected_OS),Linux)
-    CFLAGS += -std=gnu99
+	CFLAGS += -std=gnu99
 endif
 
 ODIR=obj
@@ -26,10 +26,7 @@ tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
 tests_ok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
 tests_vg := $(patsubst %.c,%.tvg,$(wildcard test/test*.c))
 
-all: obj/hpet.so obj/shmmain obj/shm_example_reader obj/shm_example_writer obj/libchronicle.so
-
-k.h:
-	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
+all: obj/shmmain obj/shm_example_reader obj/shm_example_writer obj/libchronicle.so
 
 $(ODIR)/%.so: $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) $(CDFLAGS)
@@ -46,7 +43,7 @@ $(ODIR)/%.so: $(DEPS)
 $(ODIR)/fuzzmain: fuzzmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
-$(ODIR)/shmmain: shmmain.c shmipc.c mock_k.h $(DEPS)
+$(ODIR)/shmmain: shmmain.c $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -g -O0
 
 $(ODIR)/shm_example%: shm_example%.c $(DEPS)
@@ -60,8 +57,11 @@ coverage: obj/shmcov
 $(ODIR)/shmcov: shmmain.c shmipc.c mock_k.h $(DEPS)
 	$(CC) -o $@ $< $(CFLAGS) -fprofile-instr-generate -fcoverage-mapping -O0 -g
 
-syms:
-	nm -D ../../kdb/l64/q | grep " T "
+k.h:
+	wget https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
+
+$(ODIR)/fuzzmain: fuzzmain.c k.h mock_k.h $(DEPS)
+	afl-clang -o $@ $< $(CFLAGS) -g -O0
 
 fuzz: $(ODIR)/shmmain.fuzz
 	# brew install afl-fuzz
@@ -71,7 +71,7 @@ fuzz: $(ODIR)/shmmain.fuzz
 $(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
 	afl-clang -o $@ $< $(CFLAGS) -g -O0
 
-.PHONY: clean grind coverage syms fuzz test install
+.PHONY: clean grind coverage fuzz test install
 
 test: $(tests_ok)
 
