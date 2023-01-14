@@ -3,7 +3,7 @@
 // Recovery logic
 .pos:0
 
-.shmipc.init[`:java/queueout;`kx];
+.shmipc.init[`:java/queueout;`kx;5;1b];
 rcb:{.pos:y}
 .shmipc.tailer[`:java/queueout;rcb;0];
 .shmipc.peek[] // replay the outbound log in a "blocking" style
@@ -12,8 +12,8 @@ show " " sv ("recovered position is";string .pos)
 .shmipc.close[`:java/queueout] // kill recovery tailer
 
 // Regular application here
-.shmipc.init[`:java/queue;`text];   // input
-.shmipc.init[`:java/queueout;`kx];  // output
+.shmipc.init[`:java/queue;`text;5;0b];   // input
+.shmipc.init[`:java/queueout;`kx;5;1b];  // output
 
 // handler for new input pushes corresponding index to output
 cb:{ 0N!(x;y);.shmipc.append[`:java/queueout;x]; }

@@ -1,6 +1,6 @@
 \l shm.q
 
-.shmipc.init[`:java/queue;`text];
+.shmipc.init[`:java/queue;`text;5;0b];
 
 fd:.timer.hpet_open[{.shmipc.peek[]}; 0D00:00:00.010000000];
 

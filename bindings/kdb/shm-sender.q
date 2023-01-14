@@ -1,6 +1,6 @@
 \l shm.q
 
-.shmipc.init[`:java/queue;`text];
+.shmipc.init[`:java/queue;`text;5;1b];
 
 \t 1000
 
