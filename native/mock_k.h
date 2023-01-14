@@ -19,6 +19,7 @@
 // as valgrind can't hook the individual allocations to record the stack.
 //
 
+#include <stdlib.h>
 #define KERR -128
 
 // globals

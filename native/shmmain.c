@@ -22,7 +22,6 @@
 // wire-format encoded. we use wire.h to encode/decode this.
 int print_msg(void* ctx, uint64_t index, COBJ y) {
     printf("[%" PRIu64 "] %s\n", index, (char*)y);
-    free(y);
     return 0;
 }
 
@@ -33,7 +32,7 @@ int main(const int argc, char **argv) {
     int followflag = 0;
     char* append = NULL;
     uint64_t index = 0;
-    int queueflags = 0;
+    int can_create = 0;
 
     while ((c = getopt(argc, argv, "i:va:cf")) != -1)
     switch (c) {
@@ -47,8 +46,7 @@ int main(const int argc, char **argv) {
             append = optarg;
             break;
         case 'c':
-            //queueflags = queueflags | SHMIPC_INIT_CREATE;
-            queueflags = queueflags + 1;
+            can_create = 1;
             break;
         case 'f':
             followflag = 1;
@@ -83,7 +81,10 @@ int main(const int argc, char **argv) {
     queue_t* queue = chronicle_init(dir);
     chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
     chronicle_set_decoder(queue, &wire_parse_textonly, &free);
-
+    chronicle_set_create(queue, can_create);
+    chronicle_set_version(queue, 5);
+    chronicle_set_roll_scheme(queue, "FAST_DAILY");
+    
     if (chronicle_open(queue) != 0) {
         printf("failed to open %s", chronicle_strerror());
         exit(-1);
@@ -100,6 +101,8 @@ int main(const int argc, char **argv) {
         wirepad_text(pad, append);
         chronicle_append(queue, pad);
     }
+
+    chronicle_peek();
 
     while (followflag) {
         usleep(500*1000);
