@@ -1,5 +1,4 @@
 
-# k.h from https://raw.githubusercontent.com/KxSystems/kdb/master/c/c/k.h
 # apt-get install libcurl4-openssl-dev
 
 detected_OS := $(shell uname -s)
@@ -18,6 +17,10 @@ endif
 ODIR=obj
 LIBS=-lm
 DEPS=wire.h wire.c libchronicle.h libchronicle.c buffer.h buffer.c
+
+ifeq ($(PREFIX),)
+	PREFIX := /usr
+endif
 
 tests := $(patsubst %.c,%.to,$(wildcard test/test*.c))
 tests_ok := $(patsubst %.c,%.tok,$(wildcard test/test*.c))
@@ -68,7 +71,7 @@ fuzz: $(ODIR)/shmmain.fuzz
 $(ODIR)/shmmain.fuzz: shmmain.c shmipc.c mock_k.h $(DEPS)
 	afl-clang -o $@ $< $(CFLAGS) -g -O0
 
-.PHONY: clean grind coverage syms fuzz test
+.PHONY: clean grind coverage syms fuzz test install
 
 test: $(tests_ok)
 
@@ -78,3 +81,9 @@ clean:
 	rm -f *~ core $(INCDIR)/*~ default.prof*
 	rm -Rf $(ODIR)/*
 	rm -Rf test/*.to test/*.tok test/*.tvg
+
+install: obj/libchronicle.so
+	install -d $(DESTDIR)$(PREFIX)/lib/
+	install -m 644 obj/libchronicle.so $(DESTDIR)$(PREFIX)/lib/
+	install -d $(DESTDIR)$(PREFIX)/include/
+	install -m 644 libchronicle.h $(DESTDIR)$(PREFIX)/include/
