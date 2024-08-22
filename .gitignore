@@ -4,3 +4,4 @@ native/test/*.to
 native/test/*.tok
 native/test/*.tvg
 __pycache__
+venv

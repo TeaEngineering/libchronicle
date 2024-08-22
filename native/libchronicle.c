@@ -846,7 +846,7 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
             tailer->qf_fn = chronicle_get_cycle_fn(queue, cycle);
             tailer->qf_tip = 0;
 
-            printf("shmipc: opening cycle %" PRIu64 " filename %s\n", cycle, tailer->qf_fn);
+            printf("shmipc: opening cycle %" PRIu64 " filename %s (highest_cycle %" PRIu64 ")\n", cycle, tailer->qf_fn, queue->highest_cycle);
             int fopen_flags = O_RDONLY;
             if (tailer->mmap_protection != PROT_READ) fopen_flags = O_RDWR;
             if ((tailer->qf_fd = open(tailer->qf_fn, fopen_flags)) < 0) {
@@ -1272,14 +1272,16 @@ COBJ chronicle_collect(tailer_t *tailer, collected_t *collected) {
     tailer->collect = collected;
 
     uint64_t delaycount = 0;
-    peek_queue_modcount(tailer->queue);
     while (1) {
         int r = chronicle_peek_tailer(tailer);
         if (debug) printf("collect value returns %d into object %p\n", r, tailer->collect);
         if (r == TS_COLLECTED) {
             break;
         }
-        if (delaycount++ >> 20) usleep(delaycount >> 20);
+        if (delaycount++ > 20) {
+            usleep(delaycount);
+            peek_queue_modcount(tailer->queue);
+        }
     }
     tailer->collect = NULL;
     return collected->msg;
