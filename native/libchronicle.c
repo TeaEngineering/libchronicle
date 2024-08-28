@@ -704,10 +704,10 @@ void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t*
 void handle_dirlist_uint64(char* buf, int sz, uint64_t data, wirecallbacks_t* cbs){
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
-        if (debug) printf("  v5 roll_length set to %lx\n", data);
+        if (debug) printf("  v5 roll_length set to %" PRIu64 "\n", data);
         queue->roll_length = data;
     } else if (strncmp(buf, "epoch", sz) == 0) {
-        if (debug) printf("  v5 roll_epoch set to %lx\n", data);
+        if (debug) printf("  v5 roll_epoch set to %" PRIu64 "\n", data);
         queue->roll_epoch = data;
     }
 }
@@ -724,14 +724,14 @@ void handle_dirlist_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t
 void handle_qf_uint64(char* buf, int sz, uint64_t data, wirecallbacks_t* cbs){
     queue_t* queue = (queue_t*)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
-        if (debug) printf(" v4 roll_length set to %lx\n", data);
+        if (debug) printf(" v4 roll_length set to %" PRIu64 "\n", data);
         queue->roll_length = data;
     } else if (strncmp(buf, "indexCount", sz) == 0) {
         queue->index_count = data;
     } else if (strncmp(buf, "indexSpacing", sz) == 0) {
         queue->index_spacing = data;
     } else if (strncmp(buf, "epoch", sz) == 0) {
-        if (debug) printf(" v4 roll_epoch set to %lx\n", data);
+        if (debug) printf(" v4 roll_epoch set to %" PRIu64 "\n", data);
         queue->roll_epoch = data;
     }
 }
