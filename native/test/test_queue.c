@@ -256,6 +256,20 @@ static void queue_init_rollscheme(void **state) {
     p = chronicle_get_cycle_fn(queue, 0);
     assert_string_equal(p, "/tmp/19700101.cq4");
     free(p);
+    p = chronicle_get_cycle_fn(queue, 1);
+    assert_string_equal(p, "/tmp/19700102.cq4");
+    free(p);
+
+    // bug: CodeQL cpp/integer-multiplication-cast-to-long
+    // rawtime could overflow a 32-bit interger
+    // index = cycle * roll_length = cycle * 24*60*60
+    //    2B = cycle * 86400  =>  overflow around cycle ~24855
+    p = chronicle_get_cycle_fn(queue, 24855);
+    assert_string_equal(p, "/tmp/20380119.cq4");
+    free(p);
+    p = chronicle_get_cycle_fn(queue, 24856);
+    assert_string_equal(p, "/tmp/20380120.cq4"); // was: /tmp/19011214.cq4
+    free(p);
 
     chronicle_cleanup(queue);
 }

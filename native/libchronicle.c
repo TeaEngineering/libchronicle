@@ -233,7 +233,7 @@ static inline uint32_t lock_xadd(unsigned char* mem, uint32_t val) {
 char* chronicle_get_cycle_fn(queue_t* queue, int cycle) {
     // TODO: replace with https://ideone.com/7BADb as gmtime_r leaks
     // time_t aka long. seconds since midnight 1970
-    time_t rawtime = cycle * (queue->roll_length / 1000);
+    time_t rawtime = (time_t) cycle * (queue->roll_length / 1000);
     struct tm info;
     gmtime_r(&rawtime, &info);
 
