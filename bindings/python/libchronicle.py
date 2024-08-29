@@ -34,7 +34,7 @@ cx = cdll.LoadLibrary(lib)
 class Collected(Structure):
     _fields_ = [("msg", c_void_p), ("sz", c_long), ("index", c_longlong)]
 
-
+#                     ret    arg0      arg1        arg2
 TAILER_CB = CFUNCTYPE(c_int, c_void_p, c_longlong, c_char_p)
 
 cx.chronicle_init.argtype = c_char_p
@@ -117,19 +117,18 @@ class Queue:
 
     def tailer(self, index: int = 0, cb=None):
         # for now we don't use callback api, just blocking collect
-        cb_func = None
-        if cb:
-            cb_func = TAILER_CB(cb)
-        tailer = cx.chronicle_tailer(self.q, cb_func, None, index)
-        return Tailer(tailer)
+        return Tailer(self, index, cb)
 
     def peek(self):
         cx.chronicle_peek_queue(self.q)
 
 
 class Tailer:
-    def __init__(self, tailer):
-        self.tailer = tailer
+    def __init__(self, queue: Queue, index:int = 0, cb=None):
+        self.cb_func = None
+        if cb:
+            self.cb_func = TAILER_CB(cb)
+        self.tailer = cx.chronicle_tailer(queue.q, self.cb_func, None, index)
         self.collected = Collected()
 
     def __enter__(self):
