@@ -23,10 +23,10 @@
 
 #include "libchronicle.h"
 
-COBJ parse_kx(unsigned char* base, int lim) {
+COBJ parse_kx(unsigned char *base, int lim) {
     // prep args and fire callback
     K msg = ktn(KG, lim);
-    memcpy((char*)msg->G0, base, lim);
+    memcpy((char *)msg->G0, base, lim);
     int ok = okx(msg);
     if (ok) {
         K out = d9(msg);
@@ -41,9 +41,9 @@ COBJ parse_kx(unsigned char* base, int lim) {
 
 // the encoding via. b9 happens in shmipc_append, so here we just
 // write the bytes
-void append_kx(unsigned char* base, COBJ msg, size_t lim) {
+void append_kx(unsigned char *base, COBJ msg, size_t lim) {
     K m = (K)msg;
-    memcpy(base, (char*)m->G0, m->n);
+    memcpy(base, (char *)m->G0, m->n);
 }
 
 size_t sizeof_kx(COBJ msg) {
@@ -56,4 +56,3 @@ void free_kx(COBJ msg) {
     K m = (K)msg;
     r0(m);
 }
-

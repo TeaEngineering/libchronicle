@@ -15,16 +15,15 @@
 #ifndef FILE_LIBBUFFER_SEEN
 #define FILE_LIBBUFFER_SEEN
 
-
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 // Outputs non-printable characters as octal, which allows the resulting
 // string to be a valid C-string constant.
-void printbuf(char* c, int n) {
+void printbuf(char *c, int n) {
     printf("unsigned char* buf=\"");
     for (int i = 0; i < n; i++) {
-    switch (c[i]) {
+        switch (c[i]) {
 
         case '\n':
             printf("\\n");
@@ -44,14 +43,13 @@ void printbuf(char* c, int n) {
             } else {
                 printf("%c", c[i]);
             }
-        break;
-      }
+            break;
+        }
     }
     printf("\"\n");
 }
 
-
-char* formatbuf(char* buf, int sz) {
+char *formatbuf(char *buf, int sz) {
     // nicely format a buffer to hex/ascii with a length offset. each 16 bytes
     // or part thereof of the input take 76 bytes include newline character. caller
     // must free() the buffer.
@@ -62,24 +60,25 @@ char* formatbuf(char* buf, int sz) {
     // 00000030 69 63 65 90 00 00 28 41                          ice···(A
     //
     // ----8--- -------------------------48--------------------- --------17-------\n
-    const char* hexd = "0123456789abcdef";
-    int lines = (sz + (16-1)) / 16; // sz/16 rounded up!
-    if (lines == 0) lines++;
-    int osz   = lines * 76 + 1; // +trailing null
-    char* r = malloc(osz);
+    const char *hexd = "0123456789abcdef";
+    int         lines = (sz + (16 - 1)) / 16; // sz/16 rounded up!
+    if (lines == 0)
+        lines++;
+    int   osz = lines * 76 + 1; // +trailing null
+    char *r = malloc(osz);
     for (int i = 0; i < lines; i++) {
         // this provides our trailing null!
-        sprintf(r+i*76, "%08x %48s %17s\n", i*16, "", "");
-        for (int j = i*16; j < sz && j < (i+1)*16; j++) {
+        sprintf(r + i * 76, "%08x %48s %17s\n", i * 16, "", "");
+        for (int j = i * 16; j < sz && j < (i + 1) * 16; j++) {
             int c = j % 16;
             int e = c > 7 ? 1 : 0;
-            r[i*76+9 +c*3+e] = hexd[(buf[j] >> 4) & 0x0F]; // upper nibble
-            r[i*76+10+c*3+e] = hexd[buf[j]        & 0x0F]; // lower nibble
+            r[i * 76 + 9 + c * 3 + e] = hexd[(buf[j] >> 4) & 0x0F]; // upper nibble
+            r[i * 76 + 10 + c * 3 + e] = hexd[buf[j] & 0x0F];       // lower nibble
             // printable ascii?
             if (buf[j] >= 32 && buf[j] < 127) {
-                r[i*76+9+49+c+e] = buf[j];
+                r[i * 76 + 9 + 49 + c + e] = buf[j];
             } else {
-                r[i*76+9+49+c+e] = '.';
+                r[i * 76 + 9 + 49 + c + e] = '.';
             }
         }
     }

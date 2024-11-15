@@ -1,25 +1,26 @@
 #define _GNU_SOURCE
 
+#include <cmocka.h>
+#include <setjmp.h>
 #include <stdarg.h>
 #include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <wire.h>
 
-void handle_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t* cbs) {
-    int* res = (int*)cbs->userdata;
+void handle_text(char *buf, int sz, char *data, int dsz, wirecallbacks_t *cbs) {
+    int *res = (int *)cbs->userdata;
     *res = (strncmp(buf, "hello", sz) == 0) ? 5 : 1;
-    if (wire_trace) printf("  got text cb %.*s\n", dsz, data);
+    if (wire_trace)
+        printf("  got text cb %.*s\n", dsz, data);
 }
 
 static void test_wirepad_text(void **state) {
     wire_trace = 0;
 
-    wirepad_t* pad = wirepad_init(1024);
+    wirepad_t *pad = wirepad_init(1024);
     assert_non_null(pad);
     assert_int_equal(wirepad_sizeof(pad), 0);
 
@@ -27,18 +28,16 @@ static void test_wirepad_text(void **state) {
     wirepad_text(pad, "hello");
     // this might be padding from the QC layer, perhaps shouldn't be in this test
     wirepad_pad_to_x8_00(pad);
-    assert_int_equal(wirepad_sizeof(pad), 1+5+2);
+    assert_int_equal(wirepad_sizeof(pad), 1 + 5 + 2);
 
-    //wirepad_clear(pad);
-    //assert_int_equal(wirepad_sizeof(pad), 0);
-    char* dump = wirepad_hexformat(pad);
-    assert_string_equal(dump,
-        "00000000 e5 68 65 6c 6c 6f 00 00                          .hello..         \n"
-    );
+    // wirepad_clear(pad);
+    // assert_int_equal(wirepad_sizeof(pad), 0);
+    char *dump = wirepad_hexformat(pad);
+    assert_string_equal(dump, "00000000 e5 68 65 6c 6c 6f 00 00                          .hello..         \n");
     free(dump);
 
     // run the parser over the pad and check we get one callback
-    int result = 0;
+    int             result = 0;
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
@@ -54,23 +53,20 @@ static void test_wirepad_text(void **state) {
 static void test_wirepad_fields(void **state) {
     // example from https://github.com/OpenHFT/Chronicle-Wire#simple-use-case
 
-    wirepad_t* pad = wirepad_init(1024);
-    wirepad_field_text(pad,    "message", "Hello World");
-    wirepad_field_varint(pad,  "number",  1234567890L);
-    wirepad_field_enum(pad,    "code",    "SECONDS");
-    wirepad_field_float64(pad, "price",   10.50);
+    wirepad_t *pad = wirepad_init(1024);
+    wirepad_field_text(pad, "message", "Hello World");
+    wirepad_field_varint(pad, "number", 1234567890L);
+    wirepad_field_enum(pad, "code", "SECONDS");
+    wirepad_field_float64(pad, "price", 10.50);
 
-    char* dump = wirepad_hexformat(pad);
-    assert_string_equal(dump,
-        "00000000 c7 6d 65 73 73 61 67 65  eb 48 65 6c 6c 6f 20 57 .message .Hello W\n"
-        "00000010 6f 72 6c 64 c6 6e 75 6d  62 65 72 a6 d2 02 96 49 orld.num ber....I\n"
-        "00000020 c4 63 6f 64 65 e7 53 45  43 4f 4e 44 53 c5 70 72 .code.SE CONDS.pr\n"
-        "00000030 69 63 65 90 00 00 28 41                          ice...(A         \n"
-    );
+    char *dump = wirepad_hexformat(pad);
+    assert_string_equal(dump, "00000000 c7 6d 65 73 73 61 67 65  eb 48 65 6c 6c 6f 20 57 .message .Hello W\n"
+                              "00000010 6f 72 6c 64 c6 6e 75 6d  62 65 72 a6 d2 02 96 49 orld.num ber....I\n"
+                              "00000020 c4 63 6f 64 65 e7 53 45  43 4f 4e 44 53 c5 70 72 .code.SE CONDS.pr\n"
+                              "00000030 69 63 65 90 00 00 28 41                          ice...(A         \n");
     free(dump);
     wirepad_free(pad);
 };
-
 
 static void test_wirepad_metadata(void **state) {
     wire_trace = 0;
@@ -109,41 +105,41 @@ static void test_wirepad_metadata(void **state) {
     // 00000190 6f 77 6c 65 64 67 65 64  49 6e 64 65 78 52 65 70 owledged IndexRep
     // 000001a0 6c 69 63 61 74 65 64 a7  ff ff ff ff ff ff ff ff licated. ........
 
-    char* buf="\254\000\000@\271\006header\266\007STStore\202\226\000\000\000\310wireType\266\010"
-        "WireType\354BINARY_LIGHT\310metadata\266\007SCQMeta\202]\000\000\000\304roll\266\010"
-        "SCQSRoll\202&\000\000\000\306length\246\000\\&\005\306format\353yyyyMMdd'F'\305epoch"
-        "\000\327deltaCheckpointInterval@\310sourceId\000\217\217$\000\000\000\271\024"
-        "listing.highestCycle\216\000\000\000\000\247\375I\000\000\000\000\000\000$\000\000\000\271\023"
-        "listing.lowestCycle\216\001\000\000\000\000\247\375I\000\000\000\000\000\000\034\000\000\000\271\020"
-        "listing.modCount\217\247\001\000\000\000\000\000\000\000$\000\000\000\271\024"
-        "chronicle.write.lock\216\000\000\000\000\247\000\000\000\000\000\000\000\200,\000\000\000\271\035"
-        "chronicle.lastIndexReplicated\217\217\217\217\247\377\377\377\377\377\377\377\3774\000\000\000\271)"
-        "chronicle.lastAcknowledgedIndexReplicated\247\377\377\377\377\377\377\377\377";
+    char      *buf = "\254\000\000@\271\006header\266\007STStore\202\226\000\000\000\310wireType\266\010"
+                     "WireType\354BINARY_LIGHT\310metadata\266\007SCQMeta\202]\000\000\000\304roll\266\010"
+                     "SCQSRoll\202&\000\000\000\306length\246\000\\&\005\306format\353yyyyMMdd'F'\305epoch"
+                     "\000\327deltaCheckpointInterval@\310sourceId\000\217\217$\000\000\000\271\024"
+                     "listing.highestCycle\216\000\000\000\000\247\375I\000\000\000\000\000\000$\000\000\000\271\023"
+                     "listing.lowestCycle\216\001\000\000\000\000\247\375I\000\000\000\000\000\000\034\000\000\000\271\020"
+                     "listing.modCount\217\247\001\000\000\000\000\000\000\000$\000\000\000\271\024"
+                     "chronicle.write.lock\216\000\000\000\000\247\000\000\000\000\000\000\000\200,\000\000\000\271\035"
+                     "chronicle.lastIndexReplicated\217\217\217\217\247\377\377\377\377\377\377\377\3774\000\000\000\271)"
+                     "chronicle.lastAcknowledgedIndexReplicated\247\377\377\377\377\377\377\377\377";
 
-    wirepad_t* pad = wirepad_init(1024);
+    wirepad_t *pad = wirepad_init(1024);
 
     // single metadata message
     wirepad_qc_start(pad, 1);
     wirepad_event_name(pad, "header");
     wirepad_type_prefix(pad, "STStore");
-    wirepad_nest_enter(pad); //header
-      wirepad_field_type_enum(pad, "wireType", "WireType", "BINARY_LIGHT");
-      // field metadata, type prefix SCQMeta, nesting begin
-      wirepad_field(pad, "metadata");
-      wirepad_type_prefix(pad, "SCQMeta");
-      wirepad_nest_enter(pad);
-        wirepad_field(pad, "roll");
-        wirepad_type_prefix(pad, "SCQSRoll");
-        wirepad_nest_enter(pad);
-          wirepad_field_varint(pad, "length", 86400000);
-          wirepad_field_text(pad, "format", "yyyyMMdd'F'");
-          wirepad_field_varint(pad, "epoch", 0);
-        wirepad_nest_exit(pad);
-        wirepad_field_varint(pad, "deltaCheckpointInterval", 64);
-        wirepad_field_varint(pad, "sourceId", 0);
-      wirepad_nest_exit(pad);
-      wirepad_pad_to_x8(pad); // feels wrong - should be automatic?
-      wirepad_nest_exit(pad);
+    wirepad_nest_enter(pad); // header
+    wirepad_field_type_enum(pad, "wireType", "WireType", "BINARY_LIGHT");
+    // field metadata, type prefix SCQMeta, nesting begin
+    wirepad_field(pad, "metadata");
+    wirepad_type_prefix(pad, "SCQMeta");
+    wirepad_nest_enter(pad);
+    wirepad_field(pad, "roll");
+    wirepad_type_prefix(pad, "SCQSRoll");
+    wirepad_nest_enter(pad);
+    wirepad_field_varint(pad, "length", 86400000);
+    wirepad_field_text(pad, "format", "yyyyMMdd'F'");
+    wirepad_field_varint(pad, "epoch", 0);
+    wirepad_nest_exit(pad);
+    wirepad_field_varint(pad, "deltaCheckpointInterval", 64);
+    wirepad_field_varint(pad, "sourceId", 0);
+    wirepad_nest_exit(pad);
+    wirepad_pad_to_x8(pad); // feels wrong - should be automatic?
+    wirepad_nest_exit(pad);
     wirepad_qc_finish(pad);
 
     // 6 data messages
@@ -180,7 +176,6 @@ static void test_wirepad_metadata(void **state) {
     assert_memory_equal(buf, wirepad_base(pad), wirepad_sizeof(pad));
 
     wirepad_free(pad);
-
 }
 
 int main(void) {

@@ -17,6 +17,9 @@ jobs:
     - name: Build
       shell: bash
       run: make -C native
+    - name: Build
+      shell: bash
+      run: make -C native check-format
     - name: Test
       shell: bash
       run: make -C native test

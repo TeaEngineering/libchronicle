@@ -1,0 +1,20 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AlignConsecutiveDeclarations:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+AlignArrayOfStructures: Right
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: true
+BraceWrapping:
+  AfterFunction: false
+  AfterStruct: false
+  AfterEnum: false
+  AfterControlStatement: false
+  BeforeElse: true
+  BeforeWhile: true
+ColumnLimit: 120
