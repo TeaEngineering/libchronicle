@@ -1,26 +1,26 @@
+import os
 from ctypes import (
-    c_void_p,
+    CFUNCTYPE,
+    POINTER,
+    Structure,
+    byref,
+    c_char_p,
+    c_int,
     c_long,
     c_longlong,
-    c_int,
-    c_char_p,
-    POINTER,
-    CFUNCTYPE,
-    Structure,
+    c_void_p,
     cdll,
-    byref,
     string_at,
 )
 from ctypes.util import find_library
 from typing import Optional
-import os
 
 lib = find_library("chronicle")
 if lib is None:
     # setup default lib location relative to script
     root_path = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    )
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ))
     lib = os.path.join(root_path, "native", "obj", "libchronicle.so")
 
 cx = cdll.LoadLibrary(lib)
@@ -33,6 +33,7 @@ cx = cdll.LoadLibrary(lib)
 # } collected_t;
 class Collected(Structure):
     _fields_ = [("msg", c_void_p), ("sz", c_long), ("index", c_longlong)]
+
 
 #                     ret    arg0      arg1        arg2
 TAILER_CB = CFUNCTYPE(c_int, c_void_p, c_longlong, c_char_p)
@@ -124,7 +125,7 @@ class Queue:
 
 
 class Tailer:
-    def __init__(self, queue: Queue, index:int = 0, cb=None):
+    def __init__(self, queue: Queue, index: int = 0, cb=None):
         self.cb_func = None
         if cb:
             self.cb_func = TAILER_CB(cb)

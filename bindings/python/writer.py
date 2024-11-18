@@ -1,6 +1,7 @@
-import libchronicle
 import os
 import sys
+
+import libchronicle
 
 path = sys.argv[1]
 os.makedirs(path, mode=0o777, exist_ok=True)

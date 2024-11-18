@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64.0", "setuptools_scm[toml]>=8"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+# use_scm_version={'root':'../..'}
+root = "../../"
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[project]
+name = "libchronicle"
+authors = [
+  { name="Chris Shucksmith", email="chris@shucksmith.co.uk" },
+]
+description = "Python library for appending/tailing chronicle-queue datafiles"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "License :: OSI Approved :: MIT License",
+    "Typing :: Typed",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+# version = "0.1.0"
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/TeaEngineering/libchronicle"
+Issues = "https://github.com/TeaEngineering/libchronicle/issues"

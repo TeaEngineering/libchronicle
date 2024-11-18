@@ -5,3 +5,5 @@ native/test/*.tok
 native/test/*.tvg
 __pycache__
 venv
+bindings/python/dist/*
+bindings/python/*.egg-info

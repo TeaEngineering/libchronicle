@@ -1,5 +1,6 @@
-import libchronicle
 import sys
+
+import libchronicle
 
 
 def printmsg(ctx, index, bs):

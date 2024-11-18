@@ -1,5 +1,6 @@
-import libchronicle
 import sys
+
+import libchronicle
 
 path = sys.argv[1]
 with libchronicle.Queue(path) as q:
