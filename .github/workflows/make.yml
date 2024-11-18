@@ -11,6 +11,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: LLVM upgrade
+      shell: bash
+      run: sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
     - name: Prep
       shell: bash
       run: sudo apt install libcmocka-dev libarchive-dev
