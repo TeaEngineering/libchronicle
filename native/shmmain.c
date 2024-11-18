@@ -12,30 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <libchronicle.h>
-#include <wire.h>
-#include <stdarg.h>
 #include <ctype.h>
+#include <libchronicle.h>
+#include <stdarg.h>
+#include <wire.h>
 
 // This is a stand-alone tool for replaying a queue, and optionally writing to it.
 // It is compatible with java InputMain / OutputMain, ie. the data payloads are
 // wire-format encoded. we use wire.h to encode/decode this.
-int print_msg(void* ctx, uint64_t index, COBJ y) {
-    printf("[%" PRIu64 "] %s\n", index, (char*)y);
+int print_msg(void *ctx, uint64_t index, COBJ y) {
+    printf("[%" PRIu64 "] %s\n", index, (char *)y);
     return 0;
 }
 
 int main(const int argc, char **argv) {
     int c;
     opterr = 0;
-    int verboseflag = 0;
-    int followflag = 0;
-    char* append = NULL;
+    int      verboseflag = 0;
+    int      followflag = 0;
+    char    *append = NULL;
     uint64_t index = 0;
-    int can_create = 0;
+    int      can_create = 0;
 
     while ((c = getopt(argc, argv, "i:va:cf")) != -1)
-    switch (c) {
+        switch (c) {
         case 'i':
             index = strtoull(optarg, NULL, 0);
             break;
@@ -57,7 +57,7 @@ int main(const int argc, char **argv) {
         default:
             fprintf(stderr, "Unknown option '%c'\n", c);
             exit(3);
-    }
+        }
 
     if (optind + 1 > argc) {
         printf("Missing mandatory argument.\n Expected: %s [-d] [-m] [-i INDEX] [-v] [-a text] [-f] QUEUE\n", argv[0]);
@@ -77,20 +77,20 @@ int main(const int argc, char **argv) {
         exit(1);
     }
 
-    char* dir = argv[optind];
-    queue_t* queue = chronicle_init(dir);
+    char    *dir = argv[optind];
+    queue_t *queue = chronicle_init(dir);
     chronicle_set_encoder(queue, &wirepad_sizeof, &wirepad_write);
     chronicle_set_decoder(queue, &wire_parse_textonly, &free);
     chronicle_set_create(queue, can_create);
     chronicle_set_version(queue, 5);
     chronicle_set_roll_scheme(queue, "FAST_DAILY");
-    
+
     if (chronicle_open(queue) != 0) {
         printf("failed to open %s", chronicle_strerror());
         exit(-1);
     }
 
-    wirepad_t* pad = wirepad_init(1024);
+    wirepad_t *pad = wirepad_init(1024);
 
     chronicle_tailer(queue, &print_msg, NULL, index);
     chronicle_peek();
@@ -105,11 +105,12 @@ int main(const int argc, char **argv) {
     chronicle_peek();
 
     while (followflag) {
-        usleep(500*1000);
+        usleep(500 * 1000);
         chronicle_peek();
     }
 
-    if (verboseflag) chronicle_debug();
+    if (verboseflag)
+        chronicle_debug();
 
     chronicle_cleanup(queue);
     return 0;

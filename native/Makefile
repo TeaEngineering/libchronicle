@@ -71,8 +71,10 @@ fuzz: $(ODIR)/fuzzmain
 	mkdir -p test/fuzz_output test/fuzz_queue
 	AFL_SKIP_CPUFREQ=1 afl-fuzz -i test/fuzz_input -o test/fuzz_output $(ODIR)/fuzzmain test/fuzz_queue -
 
+check-format: $(DEPS) $(wildcard test/test*.c)
+	clang-format --dry-run --Werror $^
 
-.PHONY: clean grind coverage fuzz test install
+.PHONY: clean grind coverage fuzz test install check-format
 
 test: $(tests_ok)
 

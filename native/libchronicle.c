@@ -17,21 +17,21 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
+#include <errno.h>
+#include <fcntl.h>
+#include <libchronicle.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
 #include <string.h>
-#include <fcntl.h>
-#include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <time.h>
-#include <libchronicle.h>
+#include <unistd.h>
 
-#include "wire.h"
 #include "buffer.h"
+#include "wire.h"
 
 /**
  * Implementation notes
@@ -80,24 +80,23 @@
 // MetaDataKeys `header`index2index`index`roll
 
 // error handling
-const char* cerr_msg;
+const char *cerr_msg;
 // error handling - trigger
-int chronicle_err(const char* msg) {
+int         chronicle_err(const char *msg) {
     printf("chronicle error: '%s\n", msg);
     errno = -1;
     cerr_msg = msg;
     return -1;
 }
-void* chronicle_perr(const char* msg) {
+void *chronicle_perr(const char *msg) {
     chronicle_err(msg);
-    return (void*)NULL;
+    return (void *)NULL;
 }
 // error handling - retrieve
-const char* chronicle_strerror() {
-    return cerr_msg;
-}
+const char *chronicle_strerror() { return cerr_msg; }
 
-const char* tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY", "AWAITING_QUEUEFILE", "E_STAT", "E_MMAP", "PEEK?", "EXTEND_FAIL", "COLLECTED"};
+const char *tailer_state_messages[] = {"AWAITING_ENTRY", "BUSY",  "AWAITING_QUEUEFILE", "E_STAT",
+                                       "E_MMAP",         "PEEK?", "EXTEND_FAIL",        "COLLECTED"};
 
 // structures
 
@@ -108,165 +107,160 @@ typedef struct {
 } dirlist_fields_t;
 
 struct tailer {
-    uint64_t          dispatch_after; // for resume support
-    tailstate_t       state;
-    cdispatch_f       dispatcher;
-    void*             dispatch_ctx;
+    uint64_t       dispatch_after; // for resume support
+    tailstate_t    state;
+    cdispatch_f    dispatcher;
+    void          *dispatch_ctx;
     // to support the 'collect' operation to wait and return next item, ignoring callback
-    collected_t*      collect;
+    collected_t   *collect;
 
-    int               mmap_protection; // PROT_READ etc.
+    int            mmap_protection; // PROT_READ etc.
 
     // currently open queue file
-    uint64_t          qf_cycle_open;
-    char*             qf_fn;
-    struct stat       qf_statbuf;
-    int               qf_fd;
+    uint64_t       qf_cycle_open;
+    char          *qf_fn;
+    struct stat    qf_statbuf;
+    int            qf_fd;
 
-    uint64_t          qf_tip; // byte position of the next header, or zero if unknown
-    uint64_t          qf_index; // seqnum of the header pointed to by qf_tip
+    uint64_t       qf_tip;   // byte position of the next header, or zero if unknown
+    uint64_t       qf_index; // seqnum of the header pointed to by qf_tip
 
     // currently mapped region: buffer, offset (from 0 in file), size
-    unsigned char*    qf_buf;
-    uint64_t          qf_mmapoff;
-    uint64_t          qf_mmapsz;
+    unsigned char *qf_buf;
+    uint64_t       qf_mmapoff;
+    uint64_t       qf_mmapsz;
 
-    struct queue*     queue;
+    struct queue  *queue;
 
-    struct tailer*    next;
-    struct tailer*    prev;
+    struct tailer *next;
+    struct tailer *prev;
 };
 
 struct queue {
-    char*             dirname;
-    uint              blocksize;
-    uint8_t           version;
-    uint8_t           create;
+    char            *dirname;
+    uint             blocksize;
+    uint8_t          version;
+    uint8_t          create;
 
     // directory-listing.cq4t
-    char*             dirlist_name;
-    int               dirlist_fd;
-    struct stat       dirlist_statbuf;
-    unsigned char*    dirlist; // mmap base
-    dirlist_fields_t  dirlist_fields;
+    char            *dirlist_name;
+    int              dirlist_fd;
+    struct stat      dirlist_statbuf;
+    unsigned char   *dirlist; // mmap base
+    dirlist_fields_t dirlist_fields;
 
-    char*             queuefile_pattern;
-    glob_t            queuefile_glob; // last glob of data files, refreshed by poll on modcount
+    char            *queuefile_pattern;
+    glob_t           queuefile_glob; // last glob of data files, refreshed by poll on modcount
 
     // values observed from directory-listing poll
-    uint64_t          highest_cycle;
-    uint64_t          lowest_cycle;
-    uint64_t          modcount;
+    uint64_t         highest_cycle;
+    uint64_t         lowest_cycle;
+    uint64_t         modcount;
 
     // roll config populated from (any) queuefile header or set on creation
-    int               roll_length;
-    int               roll_epoch;
-    char*             roll_format;
-    char*             roll_name;
-    char*             roll_strftime;
-    int               index_count;
-    int               index_spacing;
+    int              roll_length;
+    int              roll_epoch;
+    char            *roll_format;
+    char            *roll_name;
+    char            *roll_strftime;
+    int              index_count;
+    int              index_spacing;
 
-    int               cycle_shift;
-    uint64_t          seqnum_mask;
+    int              cycle_shift;
+    uint64_t         seqnum_mask;
 
-    cparse_f          parser;
-    cparsefree_f      parser_free;
-    csizeof_f         append_sizeof;
-    cappend_f         append_write;
+    cparse_f         parser;
+    cparsefree_f     parser_free;
+    csizeof_f        append_sizeof;
+    cappend_f        append_write;
 
-    tailer_t*         tailers;
+    tailer_t        *tailers;
 
     // the appender is a shared tailer, polled by append[], with writing logic
     // and no callback to user code for events
-    tailer_t*         appender;
+    tailer_t        *appender;
 
-    struct queue*     next;
+    struct queue    *next;
 };
 
+typedef enum { QB_AWAITING_ENTRY, QB_BUSY, QB_REACHED_EOF, QB_NEED_EXTEND, QB_NULL_ITEM, QB_COLLECTED } parseqb_state_t;
 
-typedef enum {QB_AWAITING_ENTRY, QB_BUSY, QB_REACHED_EOF, QB_NEED_EXTEND, QB_NULL_ITEM, QB_COLLECTED} parseqb_state_t;
-
-typedef parseqb_state_t (*datacallback_f)(unsigned char*,int,uint64_t,void* userdata);
-
+typedef parseqb_state_t (*datacallback_f)(unsigned char *, int, uint64_t, void *userdata);
 
 // paramaters that control behavior, not exposed for modification
-uint32_t patch_cycles = 3;
-long int qf_disk_sz = 83754496L;
+uint32_t               patch_cycles = 3;
+long int               qf_disk_sz = 83754496L;
 
 // globals
-int debug = 0;
-uint32_t pid_header = 0;
-queue_t* queue_head = NULL;
-
+int                    debug = 0;
+uint32_t               pid_header = 0;
+queue_t               *queue_head = NULL;
 
 // forward declarations that are not part of the public api
-void parse_dirlist(queue_t*);
-void parse_queuefile_meta(unsigned char*, int, queue_t*);
-void parse_queuefile_data(unsigned char*, int, queue_t*, tailer_t*, uint64_t);
-int queuefile_init(char*, queue_t*);
-int directory_listing_reopen(queue_t*, int, int);
-int directory_listing_init(queue_t*, uint64_t cycle);
+void                   parse_dirlist(queue_t *);
+void                   parse_queuefile_meta(unsigned char *, int, queue_t *);
+void                   parse_queuefile_data(unsigned char *, int, queue_t *, tailer_t *, uint64_t);
+int                    queuefile_init(char *, queue_t *);
+int                    directory_listing_reopen(queue_t *, int, int);
+int                    directory_listing_init(queue_t *, uint64_t cycle);
 
-long       chronicle_clock_ms(queue_t*);
-uint64_t   chronicle_cycle_from_ms(queue_t*, long);
-int        chronicle_peek_queue_tailer(queue_t*, tailer_t*);
+long                   chronicle_clock_ms(queue_t *);
+uint64_t               chronicle_cycle_from_ms(queue_t *, long);
+int                    chronicle_peek_queue_tailer(queue_t *, tailer_t *);
 
 // compare and swap, 32 bits, addressed by a 64bit pointer
 static inline uint32_t lock_cmpxchgl(unsigned char *mem, uint32_t newval, uint32_t oldval) {
-    __typeof (*mem) ret;
-    __asm __volatile ("lock; cmpxchgl %2, %1"
-    : "=a" (ret), "=m" (*mem)
-    : "r" (newval), "m" (*mem), "0" (oldval));
-    return (uint32_t) ret;
+    __typeof(*mem) ret;
+    __asm __volatile("lock; cmpxchgl %2, %1" : "=a"(ret), "=m"(*mem) : "r"(newval), "m"(*mem), "0"(oldval));
+    return (uint32_t)ret;
 }
 
-static inline uint32_t lock_xadd(unsigned char* mem, uint32_t val) {
+static inline uint32_t lock_xadd(unsigned char *mem, uint32_t val) {
     __asm__ volatile("lock; xaddl %0, %1"
-    : "+r" (val), "+m" (*mem) // input+output
-    : // No input-only
-    : "memory"
-    );
+                     : "+r"(val), "+m"(*mem) // input+output
+                     :                       // No input-only
+                     : "memory");
     return (uint32_t)val;
 }
 
-char* chronicle_get_cycle_fn(queue_t* queue, int cycle) {
+char *chronicle_get_cycle_fn(queue_t *queue, int cycle) {
     // TODO: replace with https://ideone.com/7BADb as gmtime_r leaks
     // time_t aka long. seconds since midnight 1970
-    time_t rawtime = (time_t) cycle * (queue->roll_length / 1000);
+    time_t    rawtime = (time_t)cycle * (queue->roll_length / 1000);
     struct tm info;
     gmtime_r(&rawtime, &info);
 
     // format datetime component using prebuilt pattern
-    char* strftime_buf = strdup(queue->roll_format);
-    strftime(strftime_buf, strlen(strftime_buf)+1, queue->roll_strftime, &info);
+    char *strftime_buf = strdup(queue->roll_format);
+    strftime(strftime_buf, strlen(strftime_buf) + 1, queue->roll_strftime, &info);
 
     // join with dirname and file suffix
-    char* fnbuf;
-    int bufsz = asprintf(&fnbuf, "%s/%s.cq4", queue->dirname, strftime_buf);
+    char *fnbuf;
+    int   bufsz = asprintf(&fnbuf, "%s/%s.cq4", queue->dirname, strftime_buf);
     free(strftime_buf);
-    if (bufsz < 0) return NULL;
+    if (bufsz < 0)
+        return NULL;
     return fnbuf;
 }
 
-void queue_double_blocksize(queue_t* queue) {
+void queue_double_blocksize(queue_t *queue) {
     uint new_blocksize = queue->blocksize << 1;
     printf("shmipc:  doubling blocksize from %x to %x\n", queue->blocksize, new_blocksize);
     queue->blocksize = new_blocksize;
 }
 
-
-queue_t* chronicle_init(char* dir) {
-    char* debug_env = getenv("SHMIPC_DEBUG");
+queue_t *chronicle_init(char *dir) {
+    char *debug_env = getenv("SHMIPC_DEBUG");
     debug = (debug_env == NULL) ? 0 : strcmp(debug_env, "1") == 0;
-    char* wiretrace_env = getenv("SHMIPC_WIRETRACE");
+    char *wiretrace_env = getenv("SHMIPC_WIRETRACE");
     wire_trace = (wiretrace_env == NULL) ? 0 : strcmp(wiretrace_env, "1") == 0;
 
     pid_header = (getpid() & HD_MASK_LENGTH);
 
     // allocate struct, we'll link if all checks pass
-    queue_t* queue = malloc(sizeof(queue_t));
-    if (queue == NULL) return chronicle_perr("m fail");
+    queue_t *queue = malloc(sizeof(queue_t));
+    if (queue == NULL)
+        return chronicle_perr("m fail");
     bzero(queue, sizeof(queue_t));
 
     // wire up default 'text' parsers for data segments
@@ -276,7 +270,7 @@ queue_t* chronicle_init(char* dir) {
 
     // unsafe to use ref here in case caller doesn't keep in scope, so dup
     queue->dirname = strdup(dir);
-    queue->blocksize = 1024*1024; // must be a power of two (single 1 bit)
+    queue->blocksize = 1024 * 1024; // must be a power of two (single 1 bit)
     queue->roll_epoch = -1;
 
     // Good to use
@@ -286,9 +280,9 @@ queue_t* chronicle_init(char* dir) {
     return queue;
 }
 
-int chronicle_readable(char* dirname, char* suffix) {
-    char* dirlist_name;
-    int dirlist_fd;
+int chronicle_readable(char *dirname, char *suffix) {
+    char *dirlist_name;
+    int   dirlist_fd;
 
     // probe v4 directory-listing.cq4t
     asprintf(&dirlist_name, "%s/%s", dirname, suffix);
@@ -301,20 +295,25 @@ int chronicle_readable(char* dirname, char* suffix) {
     return 0;
 }
 
-int chronicle_version_detect(queue_t* queue) {
-    if (chronicle_readable(queue->dirname, "directory-listing.cq4t")) return 4;
-    if (chronicle_readable(queue->dirname, "metadata.cq4t")) return 5;
+int chronicle_version_detect(queue_t *queue) {
+    if (chronicle_readable(queue->dirname, "directory-listing.cq4t"))
+        return 4;
+    if (chronicle_readable(queue->dirname, "metadata.cq4t"))
+        return 5;
     return 0;
 }
 
-int chronicle_open(queue_t* queue) {
+int chronicle_open(queue_t *queue) {
 
-    if (debug) printf("shmipc: opening dir %s\n", queue->dirname);
+    if (debug)
+        printf("shmipc: opening dir %s\n", queue->dirname);
 
     // Is this a directory
     struct stat statbuf;
-    if (stat(queue->dirname, &statbuf) != 0) return chronicle_err("dir stat fail");
-    if (!S_ISDIR(statbuf.st_mode)) return chronicle_err("dir is not a directory");
+    if (stat(queue->dirname, &statbuf) != 0)
+        return chronicle_err("dir stat fail");
+    if (!S_ISDIR(statbuf.st_mode))
+        return chronicle_err("dir is not a directory");
 
     // autodetect version
     int auto_version = chronicle_version_detect(queue);
@@ -329,16 +328,20 @@ int chronicle_open(queue_t* queue) {
     glob(queue->queuefile_pattern, GLOB_ERR, NULL, g);
     if (debug) {
         printf("shmipc: glob %zu queue files found\n", g->gl_pathc);
-        for (int i = 0; i < g->gl_pathc;i++) {
+        for (int i = 0; i < g->gl_pathc; i++) {
             printf("   %s\n", g->gl_pathv[i]);
         }
     }
 
     if (auto_version == 0) {
-        if (queue->create == 0) return chronicle_err("queue should exist (no permission to create), but version detect failed");
-        if (queue->version == 0) return chronicle_err("queue create requires chronicle_set_version()");
-        if (g->gl_pathc != 0) return chronicle_err("queue create requires empty destination directory");
-        if (queue->roll_name == NULL) return chronicle_err("queue create requires chronicle_set_roll_scheme()");
+        if (queue->create == 0)
+            return chronicle_err("queue should exist (no permission to create), but version detect failed");
+        if (queue->version == 0)
+            return chronicle_err("queue create requires chronicle_set_version()");
+        if (g->gl_pathc != 0)
+            return chronicle_err("queue create requires empty destination directory");
+        if (queue->roll_name == NULL)
+            return chronicle_err("queue create requires chronicle_set_roll_scheme()");
 
     } else if (queue->version != 0 && queue->version != auto_version) {
         return chronicle_err("queue version detected does not match expected set via. chronicle_set_version()");
@@ -347,16 +350,19 @@ int chronicle_open(queue_t* queue) {
     }
 
     // populate dirlist
-    asprintf(&queue->dirlist_name, queue->version == 4 ? "%s/directory-listing.cq4t" : "%s/metadata.cq4t", queue->dirname);
+    asprintf(&queue->dirlist_name, queue->version == 4 ? "%s/directory-listing.cq4t" : "%s/metadata.cq4t",
+             queue->dirname);
     if (queue->create && auto_version == 0) {
         uint64_t cycle = chronicle_cycle_from_ms(queue, chronicle_clock_ms(queue));
-        int rc = directory_listing_init(queue, cycle);
-        if(rc != 0) return rc;
+        int      rc = directory_listing_init(queue, cycle);
+        if (rc != 0)
+            return rc;
     }
 
     // parse the directory listing and sanity-check all required fields exist
     int rc = directory_listing_reopen(queue, O_RDONLY, PROT_READ);
-    if(rc != 0) return rc;
+    if (rc != 0)
+        return rc;
 
     if (queue->version == 4) {
         // For v4, we need to read a 'queue' header from any one of the datafiles to get the
@@ -364,15 +370,16 @@ int chronicle_open(queue_t* queue) {
         // yet, so this needs to use the directory listing.
 
         if (g->gl_pathc < 1) {
-            return chronicle_err("V4 and no queue files found so cannot initialise. Call chronicle_set_create(queue, 1) to allow queue creation");
+            return chronicle_err("V4 and no queue files found so cannot initialise. Call chronicle_set_create(queue, "
+                                 "1) to allow queue creation");
         }
 
-        int               queuefile_fd;
-        struct stat       queuefile_statbuf;
-        uint64_t          queuefile_extent;
-        unsigned char*    queuefile_buf;
+        int            queuefile_fd;
+        struct stat    queuefile_statbuf;
+        uint64_t       queuefile_extent;
+        unsigned char *queuefile_buf;
 
-        char* fn = queue->queuefile_glob.gl_pathv[0];
+        char          *fn = queue->queuefile_glob.gl_pathv[0];
         // find length of queuefile and mmap
         if ((queuefile_fd = open(fn, O_RDONLY)) < 0) {
             return chronicle_err("qfi open");
@@ -387,7 +394,8 @@ int chronicle_open(queue_t* queue) {
             return chronicle_err("qfi mmap fail");
 
         // we don't need a data-parser at this stage as only need values from the header
-        if (debug) printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
+        if (debug)
+            printf("shmipc: parsing queuefile %s 0..%" PRIu64 "\n", fn, queuefile_extent);
         parse_queuefile_meta(queuefile_buf, queuefile_extent, queue);
 
         // close queuefile
@@ -397,15 +405,18 @@ int chronicle_open(queue_t* queue) {
 
     // check we loaded roll settings from queuefile or metadata
     // Note these might be the settings we wrote during create
-    if (queue->roll_format == 0) return chronicle_err("qfi roll_format fail");
-    if (queue->roll_length == 0) return chronicle_err("qfi roll_length fail");
-    if (queue->roll_epoch == -1) return chronicle_err("qfi roll_epoch fail");
+    if (queue->roll_format == 0)
+        return chronicle_err("qfi roll_format fail");
+    if (queue->roll_length == 0)
+        return chronicle_err("qfi roll_length fail");
+    if (queue->roll_epoch == -1)
+        return chronicle_err("qfi roll_epoch fail");
     if (chronicle_set_roll_dateformat(queue, queue->roll_format) != 0) {
         printf("roll format detected %s\n", queue->roll_format);
         return chronicle_err("detected roll_format is not recognised");
     }
-    //if (queue->index_count == 0) return chronicle_err("qfi index_count fail");
-    //if (queue->index_spacing == 0) return chronicle_err("qfi index_spacing fail");
+    // if (queue->index_count == 0) return chronicle_err("qfi index_count fail");
+    // if (queue->index_spacing == 0) return chronicle_err("qfi index_spacing fail");
 
     queue->cycle_shift = 32;
     queue->seqnum_mask = 0x00000000FFFFFFFF;
@@ -415,75 +426,80 @@ int chronicle_open(queue_t* queue) {
 
     // avoids a tailer registration before we have a minimum cycle
     chronicle_peek_queue(queue);
-    if (debug) printf("shmipc: chronicle_open() OK\n");
+    if (debug)
+        printf("shmipc: chronicle_open() OK\n");
 
     return 0;
 }
 
 void chronicle_set_decoder(queue_t *queue, cparse_f parser, cparsefree_f parser_free) {
-    if (debug & !parser) printf("chronicle: setting NULL parser");
+    if (debug & !parser)
+        printf("chronicle: setting NULL parser");
     queue->parser = parser;
     queue->parser_free = parser_free;
 }
 
 void chronicle_set_encoder(queue_t *queue, csizeof_f append_sizeof, cappend_f append_write) {
-    if (debug & !append_sizeof) printf("chronicle: setting NULL append_sizeof");
-    if (debug & !append_write) printf("chronicle: setting NULL append_write");
+    if (debug & !append_sizeof)
+        printf("chronicle: setting NULL append_sizeof");
+    if (debug & !append_write)
+        printf("chronicle: setting NULL append_write");
     queue->append_sizeof = append_sizeof;
     queue->append_write = append_write;
 }
 
 struct ROLL_SCHEME chronicle_roll_schemes[] = {
     // in use by cq5
-    {"FIVE_MINUTELY",        "yyyyMMdd-HHmm'V'",        5*60,  2<<10,   256},
-    {"TEN_MINUTELY",         "yyyyMMdd-HHmm'X'",       10*60,  2<<10,   256},
-    {"TWENTY_MINUTELY",      "yyyyMMdd-HHmm'XX'",      20*60,  2<<10,   256},
-    {"HALF_HOURLY",          "yyyyMMdd-HHmm'H'",       30*60,  2<<10,   256},
-    {"FAST_HOURLY",          "yyyyMMdd-HH'F'",         60*60,  4<<10,   256},
-    {"TWO_HOURLY",           "yyyyMMdd-HH'II'",      2*60*60,  4<<10,   256},
-    {"FOUR_HOURLY",          "yyyyMMdd-HH'IV'",      4*60*60,  4<<10,   256},
-    {"SIX_HOURLY",           "yyyyMMdd-HH'VI'",      6*60*60,  4<<10,   256},
-    {"FAST_DAILY",           "yyyyMMdd'F'",         24*60*60,  4<<10,   256},
+    {       "FIVE_MINUTELY",    "yyyyMMdd-HHmm'V'",       5 * 60,  2 << 10,     256},
+    {        "TEN_MINUTELY",    "yyyyMMdd-HHmm'X'",      10 * 60,  2 << 10,     256},
+    {     "TWENTY_MINUTELY",   "yyyyMMdd-HHmm'XX'",      20 * 60,  2 << 10,     256},
+    {         "HALF_HOURLY",    "yyyyMMdd-HHmm'H'",      30 * 60,  2 << 10,     256},
+    {         "FAST_HOURLY",      "yyyyMMdd-HH'F'",      60 * 60,  4 << 10,     256},
+    {          "TWO_HOURLY",     "yyyyMMdd-HH'II'",  2 * 60 * 60,  4 << 10,     256},
+    {         "FOUR_HOURLY",     "yyyyMMdd-HH'IV'",  4 * 60 * 60,  4 << 10,     256},
+    {          "SIX_HOURLY",     "yyyyMMdd-HH'VI'",  6 * 60 * 60,  4 << 10,     256},
+    {          "FAST_DAILY",         "yyyyMMdd'F'", 24 * 60 * 60,  4 << 10,     256},
     // used historically by cq4
-    {"MINUTELY",             "yyyyMMdd-HHmm",             60,  2<<10,    16},
-    {"HOURLY",               "yyyyMMdd-HH",            60*60,  4<<10,    16},
-    {"DAILY",                "yyyyMMdd",            24*60*60,  8<<10,    64},
+    {            "MINUTELY",       "yyyyMMdd-HHmm",           60,  2 << 10,      16},
+    {              "HOURLY",         "yyyyMMdd-HH",      60 * 60,  4 << 10,      16},
+    {               "DAILY",            "yyyyMMdd", 24 * 60 * 60,  8 << 10,      64},
     // minimal rolls with resulting large queue files
-    {"LARGE_HOURLY",         "yyyyMMdd-HH'L'",         60*60,  8<<10,    64},
-    {"LARGE_DAILY",          "yyyyMMdd'L'",         24*60*60, 32<<10,   128},
-    {"XLARGE_DAILY",         "yyyyMMdd'X'",         24*60*60, 32<<10,   256},
-    {"HUGE_DAILY",           "yyyyMMdd'H'",         24*60*60, 32<<10,  1024},
+    {        "LARGE_HOURLY",      "yyyyMMdd-HH'L'",      60 * 60,  8 << 10,      64},
+    {         "LARGE_DAILY",         "yyyyMMdd'L'", 24 * 60 * 60, 32 << 10,     128},
+    {        "XLARGE_DAILY",         "yyyyMMdd'X'", 24 * 60 * 60, 32 << 10,     256},
+    {          "HUGE_DAILY",         "yyyyMMdd'H'", 24 * 60 * 60, 32 << 10,    1024},
     // for tests and benchmarking with nearly no indexing
-    {"SMALL_DAILY",          "yyyyMMdd'S'",         24*60*60,  8<<10,     8},
-    {"LARGE_HOURLY_SPARSE",  "yyyyMMdd-HH'LS'",        60*60,  4<<10,  1024},
-    {"LARGE_HOURLY_XSPARSE", "yyyyMMdd-HH'LX'",        60*60,  2<<10, 1<<20},
-    {"HUGE_DAILY_XSPARSE",   "yyyyMMdd'HX'",        24*60*60, 16<<10, 1<<20},
+    {         "SMALL_DAILY",         "yyyyMMdd'S'", 24 * 60 * 60,  8 << 10,       8},
+    { "LARGE_HOURLY_SPARSE",     "yyyyMMdd-HH'LS'",      60 * 60,  4 << 10,    1024},
+    {"LARGE_HOURLY_XSPARSE",     "yyyyMMdd-HH'LX'",      60 * 60,  2 << 10, 1 << 20},
+    {  "HUGE_DAILY_XSPARSE",        "yyyyMMdd'HX'", 24 * 60 * 60, 16 << 10, 1 << 20},
     // for tests to create smaller queue files
-    {"TEST_SECONDLY",        "yyyyMMdd-HHmmss'T'",         1, 32<<10,     4},
-    {"TEST4_SECONDLY",       "yyyyMMdd-HHmmss'T4'",        1,     32,     4},
-    {"TEST_HOURLY",          "yyyyMMdd-HH'T'",         60*60,     16,     4},
-    {"TEST_DAILY",           "yyyyMMdd'T1'",        24*60*60,      8,     1},
-    {"TEST2_DAILY",          "yyyyMMdd'T2'",        24*60*60,     16,     2},
-    {"TEST4_DAILY",          "yyyyMMdd'T4'",        24*60*60,     32,     4},
-    {"TEST8_DAILY",          "yyyyMMdd'T8'",        24*60*60,    128,     8},
+    {       "TEST_SECONDLY",  "yyyyMMdd-HHmmss'T'",            1, 32 << 10,       4},
+    {      "TEST4_SECONDLY", "yyyyMMdd-HHmmss'T4'",            1,       32,       4},
+    {         "TEST_HOURLY",      "yyyyMMdd-HH'T'",      60 * 60,       16,       4},
+    {          "TEST_DAILY",        "yyyyMMdd'T1'", 24 * 60 * 60,        8,       1},
+    {         "TEST2_DAILY",        "yyyyMMdd'T2'", 24 * 60 * 60,       16,       2},
+    {         "TEST4_DAILY",        "yyyyMMdd'T4'", 24 * 60 * 60,       32,       4},
+    {         "TEST8_DAILY",        "yyyyMMdd'T8'", 24 * 60 * 60,      128,       8},
 };
 
-void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
-    if (debug) printf("chronicle: chronicle_set_roll_scheme applying %s\n", x.name);
+void chronicle_apply_roll_scheme(queue_t *queue, struct ROLL_SCHEME x) {
+    if (debug)
+        printf("chronicle: chronicle_set_roll_scheme applying %s\n", x.name);
     free(queue->roll_name);
     free(queue->roll_format);
     free(queue->roll_strftime);
-    queue->roll_name   = strdup(x.name);
+    queue->roll_name = strdup(x.name);
     queue->roll_format = strdup(x.formatstr);
     queue->roll_length = x.roll_length_secs * 1000;
 
     // remove appostrophe from java's format string and build
     // the equivelent strftime string together
-    char* p = strdup(queue->roll_format);
-    int px = 0;
-    char* f = queue->roll_format;
-    int fi = 0;
-    int inquote = 0;
+    char *p = strdup(queue->roll_format);
+    int   px = 0;
+    char *f = queue->roll_format;
+    int   fi = 0;
+    int   inquote = 0;
     while (fi < strlen(queue->roll_format)) {
         if (debug) {
             printf(" rs parser fi=%d px=%d inquote=%d buffer='%s'\n", fi, px, inquote, p);
@@ -523,7 +539,8 @@ void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
             p[px++] = 'S';
             fi += 2;
         } else {
-            printf("chronicle: parser conversion of %s exploded at fi=%d px=%d inquote=%d buffer='%s'\n", queue->roll_format, fi, px, inquote, p);
+            printf("chronicle: parser conversion of %s exploded at fi=%d px=%d inquote=%d buffer='%s'\n",
+                   queue->roll_format, fi, px, inquote, p);
             return;
         }
     }
@@ -534,8 +551,8 @@ void chronicle_apply_roll_scheme(queue_t* queue, struct ROLL_SCHEME x) {
     queue->roll_strftime = p;
 }
 
-int chronicle_set_roll_scheme(queue_t* queue, char* scheme) {
-    for (int i = 0; i < sizeof(chronicle_roll_schemes)/sizeof(chronicle_roll_schemes[0]); i++) {
+int chronicle_set_roll_scheme(queue_t *queue, char *scheme) {
+    for (int i = 0; i < sizeof(chronicle_roll_schemes) / sizeof(chronicle_roll_schemes[0]); i++) {
         struct ROLL_SCHEME x = chronicle_roll_schemes[i];
         if (strcmp(scheme, x.name) == 0) {
             chronicle_apply_roll_scheme(queue, x);
@@ -544,16 +561,12 @@ int chronicle_set_roll_scheme(queue_t* queue, char* scheme) {
     return 0;
 }
 
-char* chronicle_get_roll_scheme(queue_t* queue) {
-    return queue->roll_name;
-}
+char *chronicle_get_roll_scheme(queue_t *queue) { return queue->roll_name; }
 
-char* chronicle_get_roll_format(queue_t* queue) {
-    return queue->roll_format;
-}
+char *chronicle_get_roll_format(queue_t *queue) { return queue->roll_format; }
 
-int chronicle_set_roll_dateformat(queue_t* queue, char* dateformat) {
-    for (int i = 0; i < sizeof(chronicle_roll_schemes)/sizeof(chronicle_roll_schemes[0]); i++) {
+int   chronicle_set_roll_dateformat(queue_t *queue, char *dateformat) {
+    for (int i = 0; i < sizeof(chronicle_roll_schemes) / sizeof(chronicle_roll_schemes[0]); i++) {
         struct ROLL_SCHEME x = chronicle_roll_schemes[i];
         if (strcmp(dateformat, x.formatstr) == 0) {
             chronicle_apply_roll_scheme(queue, x);
@@ -563,11 +576,9 @@ int chronicle_set_roll_dateformat(queue_t* queue, char* dateformat) {
     return -1;
 }
 
-void chronicle_set_create(queue_t* queue, int create) {
-    queue->create = create;
-}
+void chronicle_set_create(queue_t *queue, int create) { queue->create = create; }
 
-void chronicle_set_version(queue_t* queue, int version) {
+void chronicle_set_version(queue_t *queue, int version) {
     if (version == 4) {
         queue->version = 4;
     } else if (version == 5) {
@@ -575,21 +586,17 @@ void chronicle_set_version(queue_t* queue, int version) {
     }
 }
 
-int chronicle_get_version(queue_t* queue) {
-    return queue->version;
-}
+int  chronicle_get_version(queue_t *queue) { return queue->version; }
 
-long chronicle_clock_ms(queue_t* queue) {
+long chronicle_clock_ms(queue_t *queue) {
     // switch to custom clock etc.
     // default case
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 ;
+    return (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
 }
 
-uint64_t chronicle_cycle_from_ms(queue_t* queue, long ms) {
-    return (ms - queue->roll_epoch) / queue->roll_length;
-}
+uint64_t chronicle_cycle_from_ms(queue_t *queue, long ms) { return (ms - queue->roll_epoch) / queue->roll_length; }
 
 // return codes
 //    0  awaiting at &base
@@ -600,42 +607,52 @@ uint64_t chronicle_cycle_from_ms(queue_t* queue, long ms) {
 //   (7  collected value - from parse_data)
 // if any entries are read the values at basep and indexp are updated
 // if parse_data returns non-zero, we pause parsing after the current item
-// typedef enum {QB_AWAITING_ENTRY, QB_BUSY, QB_REACHED_EOF, QB_NEED_EXTEND, QB_NULL_ITEM, QB_COLLECTED} parseqb_state_t;
+// typedef enum {QB_AWAITING_ENTRY, QB_BUSY, QB_REACHED_EOF, QB_NEED_EXTEND, QB_NULL_ITEM, QB_COLLECTED}
+// parseqb_state_t;
 
-parseqb_state_t parse_queue_block(queue_t *queue, unsigned char** basep, uint64_t *indexp, unsigned char* extent, wirecallbacks_t* hcbs, datacallback_f parse_data, void* userdata) {
-    uint32_t header;
-    int sz;
-    unsigned char* base = *basep;
-    uint64_t index = *indexp;
+parseqb_state_t parse_queue_block(queue_t *queue, unsigned char **basep, uint64_t *indexp, unsigned char *extent,
+                                  wirecallbacks_t *hcbs, datacallback_f parse_data, void *userdata) {
+    uint32_t        header;
+    int             sz;
+    unsigned char  *base = *basep;
+    uint64_t        index = *indexp;
     parseqb_state_t pd = QB_AWAITING_ENTRY;
     while (pd == QB_AWAITING_ENTRY) {
-        if (base+4 >= extent) return 3;
+        if (base + 4 >= extent)
+            return 3;
         memcpy(&header, base, sizeof(header)); // relax, fn optimised away
         // no speculative fetches before the header is read
-        asm volatile ("mfence" ::: "memory");
+        asm volatile("mfence" ::: "memory");
 
         if (header == HD_UNALLOCATED) {
-            if (debug) printf(" %" PRIu64 " @%p unallocated\n", index, base);
+            if (debug)
+                printf(" %" PRIu64 " @%p unallocated\n", index, base);
             return QB_AWAITING_ENTRY;
         } else if ((header & HD_MASK_META) == HD_WORKING) {
-            if (debug) printf(" @%p locked for writing by pid %d\n", base, header & HD_MASK_LENGTH);
+            if (debug)
+                printf(" @%p locked for writing by pid %d\n", base, header & HD_MASK_LENGTH);
             return QB_BUSY;
         } else if ((header & HD_MASK_META) == HD_METADATA) {
             sz = (header & HD_MASK_LENGTH);
-            if (debug) printf(" @%p metadata size %x\n", base, sz);
-            if (base+4+sz >= extent) return QB_NEED_EXTEND;
-            wire_parse(base+4, sz, hcbs);
+            if (debug)
+                printf(" @%p metadata size %x\n", base, sz);
+            if (base + 4 + sz >= extent)
+                return QB_NEED_EXTEND;
+            wire_parse(base + 4, sz, hcbs);
             // EventName  header
             //   switch to header parser
         } else if ((header & HD_MASK_META) == HD_EOF) {
-            if (debug) printf(" @%p EOF\n", base);
+            if (debug)
+                printf(" @%p EOF\n", base);
             return QB_REACHED_EOF;
         } else {
             sz = (header & HD_MASK_LENGTH);
-            if (debug) printf(" %" PRIu64 " @%p data size %x\n", index, base, sz);
+            if (debug)
+                printf(" %" PRIu64 " @%p data size %x\n", index, base, sz);
             if (parse_data) {
-                if (base+4+sz >= extent) return QB_NEED_EXTEND;
-                pd = parse_data(base+4, sz, index, userdata);
+                if (base + 4 + sz >= extent)
+                    return QB_NEED_EXTEND;
+                pd = parse_data(base + 4, sz, index, userdata);
             } else {
                 // bail at first data message
                 return QB_NULL_ITEM;
@@ -651,22 +668,23 @@ parseqb_state_t parse_queue_block(queue_t *queue, unsigned char** basep, uint64_
 }
 
 // parse data callback dispatching to wire.h parser
-parseqb_state_t parse_wire_data(unsigned char* base, int lim, uint64_t index, void* cbs) {
-    wire_parse(base, lim, (wirecallbacks_t*)cbs);
+parseqb_state_t parse_wire_data(unsigned char *base, int lim, uint64_t index, void *cbs) {
+    wire_parse(base, lim, (wirecallbacks_t *)cbs);
     return QB_AWAITING_ENTRY;
 }
 
-
 // return AWAITING_ENTRY to continue dispaching, COLLECTED to signal collected item
-parseqb_state_t parse_data_cb(unsigned char* base, int lim, uint64_t index, void* userdata) {
-    tailer_t* tailer = (tailer_t*)userdata;
-    if (debug) printbuf((char*)base, lim);
+parseqb_state_t parse_data_cb(unsigned char *base, int lim, uint64_t index, void *userdata) {
+    tailer_t *tailer = (tailer_t *)userdata;
+    if (debug)
+        printbuf((char *)base, lim);
     // prep args and fire callback
     if (index > tailer->dispatch_after) {
 
         COBJ msg = tailer->queue->parser(base, lim);
         if (msg == NULL) {
-            if (debug) printf("chronicle: caution at index %" PRIu64 " parse function returned NULL, skipping\n", index);
+            if (debug)
+                printf("chronicle: caution at index %" PRIu64 " parse function returned NULL, skipping\n", index);
             return QB_AWAITING_ENTRY;
         }
         // if asked to return inline, we skip dispatcher callback, user
@@ -687,11 +705,10 @@ parseqb_state_t parse_data_cb(unsigned char* base, int lim, uint64_t index, void
     return QB_AWAITING_ENTRY;
 }
 
-
-void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t* cbs) {
+void handle_dirlist_ptr(char *buf, int sz, unsigned char *dptr, wirecallbacks_t *cbs) {
     // we are preserving *pointers* within the shared directory data page
     // we keep the underlying mmap for life of queue
-    queue_t* queue = (queue_t*)cbs->userdata;
+    queue_t *queue = (queue_t *)cbs->userdata;
     if (strncmp(buf, "listing.highestCycle", sz) == 0) {
         queue->dirlist_fields.highest_cycle = dptr;
     } else if (strncmp(buf, "listing.lowestCycle", sz) == 0) {
@@ -701,55 +718,61 @@ void handle_dirlist_ptr(char* buf, int sz, unsigned char *dptr, wirecallbacks_t*
     }
 }
 
-void handle_dirlist_uint64(char* buf, int sz, uint64_t data, wirecallbacks_t* cbs){
-    queue_t* queue = (queue_t*)cbs->userdata;
+void handle_dirlist_uint64(char *buf, int sz, uint64_t data, wirecallbacks_t *cbs) {
+    queue_t *queue = (queue_t *)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
-        if (debug) printf("  v5 roll_length set to %" PRIu64 "\n", data);
+        if (debug)
+            printf("  v5 roll_length set to %" PRIu64 "\n", data);
         queue->roll_length = data;
     } else if (strncmp(buf, "epoch", sz) == 0) {
-        if (debug) printf("  v5 roll_epoch set to %" PRIu64 "\n", data);
+        if (debug)
+            printf("  v5 roll_epoch set to %" PRIu64 "\n", data);
         queue->roll_epoch = data;
     }
 }
 
-void handle_dirlist_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t* cbs) {
-    queue_t* queue = (queue_t*)cbs->userdata;
+void handle_dirlist_text(char *buf, int sz, char *data, int dsz, wirecallbacks_t *cbs) {
+    queue_t *queue = (queue_t *)cbs->userdata;
     if (strncmp(buf, "format", sz) == 0) {
-        if (debug) printf("  v5 roll_format set to %.*s\n", dsz, data);
+        if (debug)
+            printf("  v5 roll_format set to %.*s\n", dsz, data);
         free(queue->roll_format);
         queue->roll_format = strndup(data, dsz);
     }
 }
 
-void handle_qf_uint64(char* buf, int sz, uint64_t data, wirecallbacks_t* cbs){
-    queue_t* queue = (queue_t*)cbs->userdata;
+void handle_qf_uint64(char *buf, int sz, uint64_t data, wirecallbacks_t *cbs) {
+    queue_t *queue = (queue_t *)cbs->userdata;
     if (strncmp(buf, "length", sz) == 0) {
-        if (debug) printf(" v4 roll_length set to %" PRIu64 "\n", data);
+        if (debug)
+            printf(" v4 roll_length set to %" PRIu64 "\n", data);
         queue->roll_length = data;
     } else if (strncmp(buf, "indexCount", sz) == 0) {
         queue->index_count = data;
     } else if (strncmp(buf, "indexSpacing", sz) == 0) {
         queue->index_spacing = data;
     } else if (strncmp(buf, "epoch", sz) == 0) {
-        if (debug) printf(" v4 roll_epoch set to %" PRIu64 "\n", data);
+        if (debug)
+            printf(" v4 roll_epoch set to %" PRIu64 "\n", data);
         queue->roll_epoch = data;
     }
 }
 
-void handle_qf_text(char* buf, int sz, char* data, int dsz, wirecallbacks_t* cbs) {
-    queue_t* queue = (queue_t*)cbs->userdata;
+void handle_qf_text(char *buf, int sz, char *data, int dsz, wirecallbacks_t *cbs) {
+    queue_t *queue = (queue_t *)cbs->userdata;
     if (strncmp(buf, "format", sz) == 0) {
-        if (debug) printf("  v4 roll_format qf set to %.*s\n", dsz, data);
+        if (debug)
+            printf("  v4 roll_format qf set to %.*s\n", dsz, data);
         free(queue->roll_format);
         queue->roll_format = strndup(data, dsz);
     }
 }
 
-void parse_dirlist(queue_t* queue) {
+void parse_dirlist(queue_t *queue) {
     // dirlist mmap is the size of the fstat
-    int lim = queue->dirlist_statbuf.st_size;
-    unsigned char* base = queue->dirlist;
-    uint64_t index = 0;
+    int             lim = queue->dirlist_statbuf.st_size;
+    unsigned char  *base = queue->dirlist;
+    uint64_t        index = 0;
     // used to dump out the test data for test_wire.c
     // printbuf((char*)base, lim);
 
@@ -763,18 +786,18 @@ void parse_dirlist(queue_t* queue) {
     hcbs.field_uint64 = &handle_dirlist_uint64;
     hcbs.field_char = &handle_dirlist_text;
     hcbs.userdata = queue;
-    parse_queue_block(queue, &base, &index, base+lim, &hcbs, &parse_wire_data, &cbs);
+    parse_queue_block(queue, &base, &index, base + lim, &hcbs, &parse_wire_data, &cbs);
 }
 
-void parse_queuefile_meta(unsigned char* base, int limit, queue_t* queue) {
-    uint64_t index = 0;
+void parse_queuefile_meta(unsigned char *base, int limit, queue_t *queue) {
+    uint64_t        index = 0;
 
     wirecallbacks_t hcbs;
     bzero(&hcbs, sizeof(hcbs));
     hcbs.field_uint64 = &handle_qf_uint64;
     hcbs.field_char = &handle_qf_text;
     hcbs.userdata = queue;
-    parse_queue_block(queue, &base, &index, base+limit, &hcbs, NULL, NULL);
+    parse_queue_block(queue, &base, &index, base + limit, &hcbs, NULL, NULL);
 }
 
 void chronicle_peek() {
@@ -785,13 +808,14 @@ void chronicle_peek() {
     }
 }
 
-void peek_queue_modcount(queue_t* queue) {
+void peek_queue_modcount(queue_t *queue) {
     // poll shared directory for modcount
     uint64_t modcount;
     memcpy(&modcount, queue->dirlist_fields.modcount, sizeof(modcount));
 
     if (queue->modcount != modcount) {
-        printf("shmipc: %s modcount changed from %" PRIu64 " to %" PRIu64 "\n", queue->dirname, queue->modcount, modcount);
+        printf("shmipc: %s modcount changed from %" PRIu64 " to %" PRIu64 "\n", queue->dirname, queue->modcount,
+               modcount);
         // slowpath poll
         memcpy(&queue->modcount, queue->dirlist_fields.modcount, sizeof(modcount));
         memcpy(&queue->lowest_cycle, queue->dirlist_fields.lowest_cycle, sizeof(modcount));
@@ -799,7 +823,7 @@ void peek_queue_modcount(queue_t* queue) {
     }
 }
 
-void poke_queue_modcount(queue_t* queue) {
+void poke_queue_modcount(queue_t *queue) {
     // push modifications to lowestCycle, highestCycle to directory-listing mmap
     // and atomically increment the modcount
     uint64_t modcount;
@@ -810,7 +834,8 @@ void poke_queue_modcount(queue_t* queue) {
 }
 
 void chronicle_peek_queue(queue_t *queue) {
-    if (debug) printf("peeking at %s\n", queue->dirname);
+    if (debug)
+        printf("peeking at %s\n", queue->dirname);
     peek_queue_modcount(queue);
 
     tailer_t *tailer = queue->tailers;
@@ -846,16 +871,20 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
             tailer->qf_fn = chronicle_get_cycle_fn(queue, cycle);
             tailer->qf_tip = 0;
 
-            printf("shmipc: opening cycle %" PRIu64 " filename %s (highest_cycle %" PRIu64 ")\n", cycle, tailer->qf_fn, queue->highest_cycle);
+            printf("shmipc: opening cycle %" PRIu64 " filename %s (highest_cycle %" PRIu64 ")\n", cycle, tailer->qf_fn,
+                   queue->highest_cycle);
             int fopen_flags = O_RDONLY;
-            if (tailer->mmap_protection != PROT_READ) fopen_flags = O_RDWR;
+            if (tailer->mmap_protection != PROT_READ)
+                fopen_flags = O_RDWR;
             if ((tailer->qf_fd = open(tailer->qf_fn, fopen_flags)) < 0) {
                 printf("shmipc:  awaiting queuefile for %s open errno=%d %s\n", tailer->qf_fn, errno, strerror(errno));
 
                 // if our cycle < highCycle, permitted to skip a missing file rather than wait
                 if (cycle < queue->highest_cycle) {
                     uint64_t skip_to_index = (cycle + 1) << queue->cycle_shift;
-                    printf("shmipc:  skipping queuefile (cycle < highest_cycle), bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, skip_to_index);
+                    printf("shmipc:  skipping queuefile (cycle < highest_cycle), bumping next_index from %" PRIu64
+                           " to %" PRIu64 "\n",
+                           tailer->qf_index, skip_to_index);
                     tailer->qf_index = skip_to_index;
                     continue;
                 }
@@ -864,7 +893,8 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
             tailer->qf_cycle_open = cycle;
 
             // renew the stat
-            if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0) return 3;
+            if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
+                return 3;
         }
 
         // assert: we have open fid
@@ -880,23 +910,27 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
         // assign mmap limit and offset from tip and blocksize
 
         // note: blocksize may have changed, unroll this to a constant with care
-        uint64_t blocksize_mask = ~(queue->blocksize-1);
+        uint64_t blocksize_mask = ~(queue->blocksize - 1);
         uint64_t mmapoff = tailer->qf_tip & blocksize_mask;
 
         // renew stat if we would otherwise map less than 2* blocksize
         // TODO: write needs to extend file here!
-        if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize) {
-            if (debug) printf("shmmain: approaching file size limit, less than two blocks remain\n");
+        if (tailer->qf_statbuf.st_size - mmapoff < 2 * queue->blocksize) {
+            if (debug)
+                printf("shmmain: approaching file size limit, less than two blocks remain\n");
             if (fstat(tailer->qf_fd, &tailer->qf_statbuf) < 0)
                 return TS_E_STAT;
             // signal to extend queuefile iff we are an appending tailer
-            if (tailer->qf_statbuf.st_size - mmapoff < 2*queue->blocksize && tailer->mmap_protection != PROT_READ) {
+            if (tailer->qf_statbuf.st_size - mmapoff < 2 * queue->blocksize && tailer->mmap_protection != PROT_READ) {
                 return TS_EXTEND_FAIL;
             }
         }
 
-        int limit = tailer->qf_statbuf.st_size - mmapoff > 2*queue->blocksize ? 2*queue->blocksize : tailer->qf_statbuf.st_size - mmapoff;
-        if (debug) printf("shmipc:  tip %" PRIu64 " -> mmapoff %" PRIu64 " size 0x%x  blocksize_mask 0x%" PRIx64 "\n", tailer->qf_tip, mmapoff, limit, blocksize_mask);
+        int limit = tailer->qf_statbuf.st_size - mmapoff > 2 * queue->blocksize ? 2 * queue->blocksize
+                                                                                : tailer->qf_statbuf.st_size - mmapoff;
+        if (debug)
+            printf("shmipc:  tip %" PRIu64 " -> mmapoff %" PRIu64 " size 0x%x  blocksize_mask 0x%" PRIx64 "\n",
+                   tailer->qf_tip, mmapoff, limit, blocksize_mask);
 
         // only re-mmap if desired window has changed since last scan
         if (tailer->qf_buf == NULL || mmapoff != tailer->qf_mmapoff || limit != tailer->qf_mmapsz) {
@@ -907,18 +941,21 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
 
             tailer->qf_mmapsz = limit;
             tailer->qf_mmapoff = mmapoff;
-            if ((tailer->qf_buf = mmap(0, tailer->qf_mmapsz, tailer->mmap_protection, MAP_SHARED, tailer->qf_fd, tailer->qf_mmapoff)) == MAP_FAILED) {
-                printf("shmipc:  mmap failed %s %" PRIx64 " size %" PRIx64 " error=%s\n", tailer->qf_fn, tailer->qf_mmapoff, tailer->qf_mmapsz, strerror(errno));
+            if ((tailer->qf_buf = mmap(0, tailer->qf_mmapsz, tailer->mmap_protection, MAP_SHARED, tailer->qf_fd,
+                                       tailer->qf_mmapoff)) == MAP_FAILED) {
+                printf("shmipc:  mmap failed %s %" PRIx64 " size %" PRIx64 " error=%s\n", tailer->qf_fn,
+                       tailer->qf_mmapoff, tailer->qf_mmapsz, strerror(errno));
                 tailer->qf_buf = NULL;
                 return TS_E_MMAP;
             }
-            printf("shmipc:  mmap offset %" PRIx64 " size %" PRIx64 " base=%p extent=%p\n", tailer->qf_mmapoff, tailer->qf_mmapsz, tailer->qf_buf, tailer->qf_buf+tailer->qf_mmapsz);
+            printf("shmipc:  mmap offset %" PRIx64 " size %" PRIx64 " base=%p extent=%p\n", tailer->qf_mmapoff,
+                   tailer->qf_mmapsz, tailer->qf_buf, tailer->qf_buf + tailer->qf_mmapsz);
         }
 
-        unsigned char* basep = (tailer->qf_tip - tailer->qf_mmapoff) + tailer->qf_buf; // basep within mmap
-        unsigned char* basep_old = basep;
-        unsigned char* extent = tailer->qf_buf+tailer->qf_mmapsz;
-        uint64_t index = tailer->qf_index;
+        unsigned char  *basep = (tailer->qf_tip - tailer->qf_mmapoff) + tailer->qf_buf; // basep within mmap
+        unsigned char  *basep_old = basep;
+        unsigned char  *extent = tailer->qf_buf + tailer->qf_mmapsz;
+        uint64_t        index = tailer->qf_index;
 
         //    0  awaiting at &base  (pass)
         //    1  we hit working     (pass)
@@ -928,7 +965,7 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
         //    7  collected item
         // if any entries are read the values at basep and indexp are updated
         parseqb_state_t s = parse_queue_block(queue, &basep, &index, extent, &hcbs, parse_data_cb, tailer);
-        //printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
+        // printf("shmipc: block parser result %d, shm %p to %p\n", s, basep_old, basep);
 
         if (s == QB_NEED_EXTEND && basep == basep_old) {
             queue_double_blocksize(queue);
@@ -936,19 +973,26 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
 
         if (basep != basep_old) {
             // commit result of parsing to the tailer, adjusting for the window
-            uint64_t new_tip = basep-tailer->qf_buf + tailer->qf_mmapoff;
-            if (debug) printf("shmipc:  parser moved shm %p to %p, file %" PRIu64 " -> %" PRIu64 ", index %" PRIu64 " to %" PRIu64 "\n", basep_old, basep, tailer->qf_tip, new_tip, tailer->qf_index, index);
+            uint64_t new_tip = basep - tailer->qf_buf + tailer->qf_mmapoff;
+            if (debug)
+                printf("shmipc:  parser moved shm %p to %p, file %" PRIu64 " -> %" PRIu64 ", index %" PRIu64
+                       " to %" PRIu64 "\n",
+                       basep_old, basep, tailer->qf_tip, new_tip, tailer->qf_index, index);
             tailer->qf_tip = new_tip;
             tailer->qf_index = index;
         }
 
-        if (s == QB_BUSY) return TS_BUSY;
-        if (s == QB_COLLECTED) return TS_COLLECTED;
+        if (s == QB_BUSY)
+            return TS_BUSY;
+        if (s == QB_COLLECTED)
+            return TS_COLLECTED;
 
-        if (s == QB_AWAITING_ENTRY) { // awaiting at end of queuefile
-            if (cycle < queue->highest_cycle-patch_cycles) { // allowed to fast-forward
+        if (s == QB_AWAITING_ENTRY) {                          // awaiting at end of queuefile
+            if (cycle < queue->highest_cycle - patch_cycles) { // allowed to fast-forward
                 uint64_t skip_to_index = (cycle + 1) << queue->cycle_shift;
-                printf("shmipc:  missing EOF for queuefile (cycle < highest_cycle-patch_cycles), bumping next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, skip_to_index);
+                printf("shmipc:  missing EOF for queuefile (cycle < highest_cycle-patch_cycles), bumping next_index "
+                       "from %" PRIu64 " to %" PRIu64 "\n",
+                       tailer->qf_index, skip_to_index);
                 tailer->qf_index = skip_to_index;
                 continue;
             }
@@ -958,15 +1002,14 @@ tailstate_t chronicle_peek_queue_tailer_r(queue_t *queue, tailer_t *tailer) {
         if (s == QB_REACHED_EOF) {
             // we've read an EOF marker, so the next expected index is cycle++, seqnum=0
             uint64_t eof_cycle = ((tailer->qf_index >> queue->cycle_shift) + 1) << queue->cycle_shift;
-            printf("shmipc:  hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index, eof_cycle);
+            printf("shmipc:  hit EOF marker, setting next_index from %" PRIu64 " to %" PRIu64 "\n", tailer->qf_index,
+                   eof_cycle);
             tailer->qf_index = eof_cycle;
         }
     }
 }
 
-int chronicle_peek_tailer(tailer_t *tailer) {
-    return chronicle_peek_queue_tailer(tailer->queue, tailer);
-}
+int chronicle_peek_tailer(tailer_t *tailer) { return chronicle_peek_queue_tailer(tailer->queue, tailer); }
 
 int chronicle_peek_queue_tailer(queue_t *queue, tailer_t *tailer) {
     return tailer->state = chronicle_peek_queue_tailer_r(queue, tailer);
@@ -977,27 +1020,27 @@ void chronicle_debug() {
 
     queue_t *current = queue_head;
     while (current != NULL) {
-        printf(" directory           %s\n",   current->dirname);
-        printf("  handle             %p\n",   current);
-        printf("  blocksize          %x\n",   current->blocksize);
-        printf("  version            %d\n",   current->version);
-        printf("  create             %d\n",   current->create);
-        printf("  dirlist_name       %s\n",   current->dirlist_name);
-        printf("  dirlist_fd         %d\n",   current->dirlist_fd);
+        printf(" directory           %s\n", current->dirname);
+        printf("  handle             %p\n", current);
+        printf("  blocksize          %x\n", current->blocksize);
+        printf("  version            %d\n", current->version);
+        printf("  create             %d\n", current->create);
+        printf("  dirlist_name       %s\n", current->dirlist_name);
+        printf("  dirlist_fd         %d\n", current->dirlist_fd);
         printf("  dirlist_sz         %" PRIu64 "\n", (uint64_t)current->dirlist_statbuf.st_size);
-        printf("  dirlist            %p\n",   current->dirlist);
+        printf("  dirlist            %p\n", current->dirlist);
         printf("    cycle-low        %" PRIu64 "\n", current->lowest_cycle);
         printf("    cycle-high       %" PRIu64 "\n", current->highest_cycle);
         printf("    modcount         %" PRIu64 "\n", current->modcount);
-        printf("  queuefile_pattern  %s\n",   current->queuefile_pattern);
-        printf("    cycle_shift      %d\n",   current->cycle_shift);
-        printf("    roll_epoch       %d\n",   current->roll_epoch);
-        printf("    roll_length (ms) %d\n",   current->roll_length);
-        printf("    roll_format      %s\n",   current->roll_format);
-        printf("    roll_name        %s\n",   current->roll_name);
-        printf("    roll_strftime    %s\n",   current->roll_strftime);
-        printf("    index_count      %d\n",   current->index_count);
-        printf("    index_spacing    %d\n",   current->index_spacing);
+        printf("  queuefile_pattern  %s\n", current->queuefile_pattern);
+        printf("    cycle_shift      %d\n", current->cycle_shift);
+        printf("    roll_epoch       %d\n", current->roll_epoch);
+        printf("    roll_length (ms) %d\n", current->roll_length);
+        printf("    roll_format      %s\n", current->roll_format);
+        printf("    roll_name        %s\n", current->roll_name);
+        printf("    roll_strftime    %s\n", current->roll_strftime);
+        printf("    index_count      %d\n", current->index_count);
+        printf("    index_spacing    %d\n", current->index_spacing);
 
         printf("  tailers:\n");
         tailer_t *tailer = current->tailers; // shortcut to save both collections
@@ -1013,22 +1056,22 @@ void chronicle_debug() {
     }
 }
 
-void chronicle_debug_tailer(queue_t* queue, tailer_t* tailer) {
-    const char* state_text = tailer_state_messages[tailer->state];
-    printf("    dispatcher       %p\n",   tailer->dispatcher);
+void chronicle_debug_tailer(queue_t *queue, tailer_t *tailer) {
+    const char *state_text = tailer_state_messages[tailer->state];
+    printf("    dispatcher       %p\n", tailer->dispatcher);
     uint cycle = tailer->dispatch_after >> queue->cycle_shift;
     uint seqnum = tailer->dispatch_after & queue->seqnum_mask;
     printf("    dispatch_after   %" PRIu64 " (cycle %u, seqnum %u)\n", tailer->dispatch_after, cycle, seqnum);
     printf("    state            %d - %s\n", tailer->state, state_text);
-    printf("    qf_fn            %s\n",   tailer->qf_fn);
-    printf("    qf_fd            %d\n",   tailer->qf_fd);
+    printf("    qf_fn            %s\n", tailer->qf_fn);
+    printf("    qf_fd            %d\n", tailer->qf_fd);
     printf("    qf_statbuf_sz    %" PRIu64 "\n", (uint64_t)tailer->qf_statbuf.st_size);
     printf("    qf_tip           %" PRIu64 "\n", tailer->qf_tip);
     cycle = tailer->qf_index >> queue->cycle_shift;
     seqnum = tailer->qf_index & queue->seqnum_mask;
     printf("    qf_index         %" PRIu64 " (cycle %u, seqnum %u)\n", tailer->qf_index, cycle, seqnum);
-    printf("    qf_buf           %p\n",   tailer->qf_buf);
-    printf("      extent         %p\n",   tailer->qf_buf+tailer->qf_mmapsz);
+    printf("    qf_buf           %p\n", tailer->qf_buf);
+    printf("      extent         %p\n", tailer->qf_buf + tailer->qf_mmapsz);
     printf("    qf_mmapsz        %" PRIx64 "\n", tailer->qf_mmapsz);
     printf("    qf_mmapoff       %" PRIx64 "\n", tailer->qf_mmapoff);
 }
@@ -1039,7 +1082,8 @@ uint64_t chronicle_append(queue_t *queue, COBJ msg) {
 }
 
 uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
-    if (queue == NULL) return chronicle_err("queue is NULL");
+    if (queue == NULL)
+        return chronicle_err("queue is NULL");
 
     // Appending logic
     // 0) catch up to the end of the current file.
@@ -1066,8 +1110,10 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
 
     // caution: encodecheck may tweak blocksize, do not redorder below shmipc_peek_tailer
     size_t write_sz = queue->append_sizeof(msg);
-    if (write_sz < 0) return 0;
-    if (write_sz > HD_MASK_META) return chronicle_err("`shm msg sz > 30bit");
+    if (write_sz < 0)
+        return 0;
+    if (write_sz > HD_MASK_META)
+        return chronicle_err("`shm msg sz > 30bit");
     while (write_sz > queue->blocksize)
         queue_double_blocksize(queue);
 
@@ -1077,8 +1123,9 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
     // build a special tailer with the protection bits and file descriptor set to allow
     // writing.
     if (queue->appender == NULL) {
-        tailer_t* tailer = malloc(sizeof(tailer_t));
-        if (tailer == NULL) return chronicle_err("am fail");
+        tailer_t *tailer = malloc(sizeof(tailer_t));
+        if (tailer == NULL)
+            return chronicle_err("am fail");
         bzero(tailer, sizeof(tailer_t));
 
         // compat: writers do an extended lookback to patch missing EOFs
@@ -1095,27 +1142,30 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
             printf("shmipc: rw dir listing %d %s\n", x, cerr_msg);
             return -1;
         }
-        if (debug) printf("shmipc: appender created\n");
+        if (debug)
+            printf("shmipc: appender created\n");
     }
-    tailer_t* appender = queue->appender;
+    tailer_t *appender = queue->appender;
 
     // poll the appender
     while (1) {
         int r = chronicle_peek_queue_tailer(queue, appender);
         // TODO: 2nd call defensive to ensure 1 whole blocksize is available to put
         r = chronicle_peek_queue_tailer(queue, appender);
-        if (debug) printf("shmipc: writeloop appender in state %d\n", r);
+        if (debug)
+            printf("shmipc: writeloop appender in state %d\n", r);
 
         if (r == TS_AWAITING_QUEUEFILE) {
             // our cycle is pointing to a queuefile that does not exist
             // as we are writer, create it with temporary filename, atomically
             // move it to the desired name, then bump the global highest_cycle
             // value if rename succeeded
-            char* fn_buf;
+            char *fn_buf;
             asprintf(&fn_buf, "%s.%d.tmp", appender->qf_fn, pid_header);
 
             // if queuefile_init fails, re-throw the error and abort the write
-            if (queuefile_init(fn_buf, queue) != 0) return -1;
+            if (queuefile_init(fn_buf, queue) != 0)
+                return -1;
 
             if (rename(fn_buf, appender->qf_fn) != 0) {
                 // rename failed, maybe raced with another writer, delay and try again
@@ -1178,19 +1228,20 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
         // Note that we do not extended qf_buf or qf_index after the write. Let the
         // tailer log handle the entry we've just written in the normal way, since that will
         // adjust the buffer window/mmap for us.
-        unsigned char* ptr = (appender->qf_tip - appender->qf_mmapoff) + appender->qf_buf;
-        uint32_t ret = lock_cmpxchgl(ptr, HD_UNALLOCATED, HD_WORKING);
+        unsigned char *ptr = (appender->qf_tip - appender->qf_mmapoff) + appender->qf_buf;
+        uint32_t       ret = lock_cmpxchgl(ptr, HD_UNALLOCATED, HD_WORKING);
 
         // cmpxchg returns the original value in memory, so we can tell if we succeeded
         // by looking for HD_UNALLOCATED. If we read a working bit or finished size, we lost.
         if (ret == HD_UNALLOCATED) {
-            asm volatile ("mfence" ::: "memory");
+            asm volatile("mfence" ::: "memory");
 
             // if given a clock, test if we should write EOF and advance cycle
             if (ms > 0) {
                 uint64_t cyc = chronicle_cycle_from_ms(queue, ms);
                 if (cyc > appender->qf_index >> queue->cycle_shift) {
-                    printf("shmipc: appender setting cycle from timestamp: current %" PRIu64 " proposed %" PRIu64 "\n", appender->qf_index >> queue->cycle_shift, cyc);
+                    printf("shmipc: appender setting cycle from timestamp: current %" PRIu64 " proposed %" PRIu64 "\n",
+                           appender->qf_index >> queue->cycle_shift, cyc);
                     appender->qf_index = cyc << queue->cycle_shift;
 
                     printf("shmipc: got write lock, writing EOF to start roll\n");
@@ -1212,13 +1263,14 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
                 continue; // retry write in next queuefile
             }
 
-            queue->append_write(ptr+4, msg, write_sz);
+            queue->append_write(ptr + 4, msg, write_sz);
 
-            asm volatile ("mfence" ::: "memory");
+            asm volatile("mfence" ::: "memory");
             uint32_t header = write_sz & HD_MASK_LENGTH;
             memcpy(ptr, &header, sizeof(header));
 
-            if (debug) printf("shmipc: wrote %zu bytes as index %" PRIu64 "\n", write_sz, appender->qf_index);
+            if (debug)
+                printf("shmipc: wrote %zu bytes as index %" PRIu64 "\n", write_sz, appender->qf_index);
 
             break;
         }
@@ -1230,8 +1282,9 @@ uint64_t chronicle_append_ts(queue_t *queue, COBJ msg, long ms) {
     return appender->qf_index;
 }
 
-tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatch_ctx, uint64_t index) {
-    if (queue == NULL) return chronicle_perr("queue is not valid");
+tailer_t *chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void *dispatch_ctx, uint64_t index) {
+    if (queue == NULL)
+        return chronicle_perr("queue is not valid");
 
     // decompose index into cycle (file) and seqnum within file
     int cycle = index >> queue->cycle_shift;
@@ -1246,8 +1299,9 @@ tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatc
     }
 
     // allocate struct, we'll link if all checks pass
-    tailer_t* tailer = malloc(sizeof(tailer_t));
-    if (tailer == NULL) return chronicle_perr("tm fail");
+    tailer_t *tailer = malloc(sizeof(tailer_t));
+    if (tailer == NULL)
+        return chronicle_perr("tm fail");
     bzero(tailer, sizeof(tailer_t));
 
     tailer->dispatch_after = index - 1;
@@ -1259,7 +1313,8 @@ tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatc
 
     tailer->next = queue->tailers; // linked list
     tailer->prev = NULL;
-    if (queue->tailers) queue->tailers->prev = tailer;
+    if (queue->tailers)
+        queue->tailers->prev = tailer;
     queue->tailers = tailer;
 
     tailer->queue = queue; // parent pointer
@@ -1267,14 +1322,17 @@ tailer_t* chronicle_tailer(queue_t *queue, cdispatch_f dispatcher, void* dispatc
 }
 
 COBJ chronicle_collect(tailer_t *tailer, collected_t *collected) {
-    if (tailer == NULL) return chronicle_perr("null tailer");
-    if (collected == NULL) return chronicle_perr("null collected");
+    if (tailer == NULL)
+        return chronicle_perr("null tailer");
+    if (collected == NULL)
+        return chronicle_perr("null collected");
     tailer->collect = collected;
 
     uint64_t delaycount = 0;
     while (1) {
         int r = chronicle_peek_tailer(tailer);
-        if (debug) printf("collect value returns %d into object %p\n", r, tailer->collect);
+        if (debug)
+            printf("collect value returns %d into object %p\n", r, tailer->collect);
         if (r == TS_COLLECTED) {
             break;
         }
@@ -1293,15 +1351,11 @@ void chronicle_return(tailer_t *tailer, collected_t *collected) {
     }
 }
 
-tailstate_t chronicle_tailer_state(tailer_t* tailer) {
-    return tailer->state;
-}
+tailstate_t chronicle_tailer_state(tailer_t *tailer) { return tailer->state; }
 
-uint64_t chronicle_tailer_index(tailer_t* tailer) {
-    return tailer->qf_index;
-}
+uint64_t    chronicle_tailer_index(tailer_t *tailer) { return tailer->qf_index; }
 
-void chronicle_tailer_close(tailer_t* tailer) {
+void        chronicle_tailer_close(tailer_t *tailer) {
     if (tailer->qf_fn) { // if next filename cached...
         free(tailer->qf_fn);
     }
@@ -1323,12 +1377,13 @@ void chronicle_tailer_close(tailer_t* tailer) {
     free(tailer);
 }
 
-int chronicle_cleanup(queue_t* queue_delete) {
-    if (queue_delete == NULL) return chronicle_err("queue is NULL");
+int chronicle_cleanup(queue_t *queue_delete) {
+    if (queue_delete == NULL)
+        return chronicle_err("queue is NULL");
 
     // check if queue already open
     queue_t **parent = &queue_head; // pointer to a queue_t pointer
-    queue_t *queue = queue_head;
+    queue_t  *queue = queue_head;
 
     while (queue != NULL) {
         if (queue == queue_delete) {
@@ -1337,13 +1392,14 @@ int chronicle_cleanup(queue_t* queue_delete) {
             // delete tailers
             tailer_t *tailer = queue->tailers; // shortcut to save both collections
             while (tailer != NULL) {
-                tailer_t* next_tmp = tailer->next;
+                tailer_t *next_tmp = tailer->next;
                 chronicle_tailer_close(tailer);
                 tailer = next_tmp;
             }
             queue->tailers = NULL;
 
-            if (queue->appender) chronicle_tailer_close(queue->appender);
+            if (queue->appender)
+                chronicle_tailer_close(queue->appender);
 
             // kill queue
             munmap(queue->dirlist, queue->dirlist_statbuf.st_size);
@@ -1367,7 +1423,7 @@ int chronicle_cleanup(queue_t* queue_delete) {
     return chronicle_err("chronicle_cleanup: queue not found");
 }
 
-int queuefile_init(char* fn, queue_t* queue) {
+int queuefile_init(char *fn, queue_t *queue) {
     int fd;
     int mode = 0777;
 
@@ -1397,7 +1453,7 @@ int queuefile_init(char* fn, queue_t* queue) {
     return 0;
 }
 
-int directory_listing_init(queue_t* queue, uint64_t cycle) {
+int directory_listing_init(queue_t *queue, uint64_t cycle) {
     int fd;
     int mode = 0777;
 
@@ -1406,35 +1462,35 @@ int directory_listing_init(queue_t* queue, uint64_t cycle) {
         return chronicle_err("shmipc: directory_listing_init open failed");
     }
 
-    wirepad_t* pad = wirepad_init(1024);
+    wirepad_t *pad = wirepad_init(1024);
 
     // deliberately not updating queue->roll_epoch here so that we verify
     // we can read them back from the directory_listing file
-    int roll_epoch = (queue->roll_epoch == -1) ? 0 : queue->roll_epoch;
-    int modcount = 1;
+    int        roll_epoch = (queue->roll_epoch == -1) ? 0 : queue->roll_epoch;
+    int        modcount = 1;
 
     // single metadata message
     wirepad_qc_start(pad, 1);
     wirepad_event_name(pad, "header");
     wirepad_type_prefix(pad, "STStore");
-    wirepad_nest_enter(pad); //header
-      wirepad_field_type_enum(pad, "wireType", "WireType", "BINARY_LIGHT");
-      // field metadata, type prefix SCQMeta, nesting begin
-      wirepad_field(pad, "metadata");
-      wirepad_type_prefix(pad, "SCQMeta");
-      wirepad_nest_enter(pad);
-        wirepad_field(pad, "roll");
-        wirepad_type_prefix(pad, "SCQSRoll");
-        wirepad_nest_enter(pad);
-          wirepad_field_varint(pad, "length", queue->roll_length);
-          wirepad_field_text(pad, "format", queue->roll_format);
-          wirepad_field_varint(pad, "epoch", roll_epoch);
-        wirepad_nest_exit(pad);
-        wirepad_field_varint(pad, "deltaCheckpointInterval", 64);
-        wirepad_field_varint(pad, "sourceId", 0);
-      wirepad_nest_exit(pad);
-      wirepad_pad_to_x8(pad); // feels wrong - should be automatic?
-      wirepad_nest_exit(pad);
+    wirepad_nest_enter(pad); // header
+    wirepad_field_type_enum(pad, "wireType", "WireType", "BINARY_LIGHT");
+    // field metadata, type prefix SCQMeta, nesting begin
+    wirepad_field(pad, "metadata");
+    wirepad_type_prefix(pad, "SCQMeta");
+    wirepad_nest_enter(pad);
+    wirepad_field(pad, "roll");
+    wirepad_type_prefix(pad, "SCQSRoll");
+    wirepad_nest_enter(pad);
+    wirepad_field_varint(pad, "length", queue->roll_length);
+    wirepad_field_text(pad, "format", queue->roll_format);
+    wirepad_field_varint(pad, "epoch", roll_epoch);
+    wirepad_nest_exit(pad);
+    wirepad_field_varint(pad, "deltaCheckpointInterval", 64);
+    wirepad_field_varint(pad, "sourceId", 0);
+    wirepad_nest_exit(pad);
+    wirepad_pad_to_x8(pad); // feels wrong - should be automatic?
+    wirepad_nest_exit(pad);
     wirepad_qc_finish(pad);
 
     // 6 data messages
@@ -1475,7 +1531,7 @@ int directory_listing_init(queue_t* queue, uint64_t cycle) {
     return 0;
 }
 
-int directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
+int directory_listing_reopen(queue_t *queue, int open_flags, int mmap_prot) {
     if ((queue->dirlist_fd = open(queue->dirlist_name, open_flags)) < 0) {
         return chronicle_err("directory_listing_reopen open failed");
     }
@@ -1483,10 +1539,12 @@ int directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
     // find size of dirlist and mmap
     if (fstat(queue->dirlist_fd, &queue->dirlist_statbuf) < 0)
         return chronicle_err("dirlist fstat");
-    if ((queue->dirlist = mmap(0, queue->dirlist_statbuf.st_size, mmap_prot, MAP_SHARED, queue->dirlist_fd, 0)) == MAP_FAILED)
+    if ((queue->dirlist = mmap(0, queue->dirlist_statbuf.st_size, mmap_prot, MAP_SHARED, queue->dirlist_fd, 0)) ==
+        MAP_FAILED)
         return chronicle_err("dirlist mmap fail");
 
-    if (debug) printf("shmipc: parsing dirlist %s\n", queue->dirlist_name);
+    if (debug)
+        printf("shmipc: parsing dirlist %s\n", queue->dirlist_name);
     parse_dirlist(queue);
 
     // check the polled fields in header section were all resolved to pointers within the map
@@ -1497,16 +1555,12 @@ int directory_listing_reopen(queue_t* queue, int open_flags, int mmap_prot) {
     return 0;
 }
 
-COBJ chronicle_decoder_default_parse(unsigned char* base, int lim) {
-    char* msg = calloc(1, lim+1);
+COBJ chronicle_decoder_default_parse(unsigned char *base, int lim) {
+    char *msg = calloc(1, lim + 1);
     memcpy(msg, base, lim);
     return msg;
 }
 
-size_t chronicle_encoder_default_sizeof(COBJ msg) {
-    return strlen(msg);
-}
+size_t chronicle_encoder_default_sizeof(COBJ msg) { return strlen(msg); }
 
-void chronicle_encoder_default_write(unsigned char* base, COBJ msg, size_t sz) {
-    memcpy(base, msg, sz);
-}
+void   chronicle_encoder_default_write(unsigned char *base, COBJ msg, size_t sz) { memcpy(base, msg, sz); }
