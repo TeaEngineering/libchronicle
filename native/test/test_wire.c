@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 
-#include <cmocka.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -8,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <cmocka.h>
 #include <wire.h>
 
 void handle_text(char *buf, int sz, char *data, int dsz, wirecallbacks_t *cbs) {

@@ -1,11 +1,11 @@
 #define _GNU_SOURCE
 
-#include <cmocka.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 
+#include <cmocka.h>
 #include "testdata.h"
 #include <libchronicle.h>
 #include <wire.h>
